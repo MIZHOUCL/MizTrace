@@ -1,5 +1,5 @@
 <p align="center"><img src="./web/logo.png" width="120" alt="MizTrace"></p>
-<h1 align="center">MizTrace（密迹）</h1>
+<h1 align="center">MizTrace（觅迹）</h1>
 <p align="center">你今天到底做了什么？它替你记下来，写成一篇<b>每一句都能点回证据</b>的日记。</p>
 <p align="center"><a href="./README.en.md">English</a></p>
 
@@ -105,4 +105,4 @@ node --test
 
 ## 许可
 
-MIT。第三方致谢见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+MIT。
