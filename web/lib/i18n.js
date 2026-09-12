@@ -30,7 +30,7 @@ const ZH = {
   pickImage: '贴图 / 选图', removeImage: '删掉这张图', visionOn: '开了「能看图」：生成日记时图片会发给模型。', visionOff: '图片只会以文件名进日记；要让模型看图，去设置里勾「模型支持图片」。也可以直接把图粘贴或拖到这里。',
   // 抽屉
   drawerLabel: '模块详情', closeEsc: '关闭（Esc）', excludedForeverNote: '该项目在设置里被永久排除。', writeIn: '写进日记', excludeProject: '永久排除此项目',
-  hintLabel: '补充说明（可选）：这段实际在做什么', hintPh: '例如：在这个站看了一小时 Vue 的教程。或者：这份 SQL 是给西南工厂的人效报表改的。',
+  hintLabel: '补充说明（可选）：这段实际在做什么', hintPh: '例如：在这个站看了一小时 Vue 的教程。',
   hintNote: '和手记一样是最高优先级，模型会优先采信；也可以贴一两张图。', saveHint: '保存说明', clearHint: '清除', addImage: '附一张图', hintImgVisionOff: '附了图就必须用能看图的模型（设置里勾「模型支持图片」），否则生成时会报错。',
   evidence: '证据', reply: '回复', with: '用', lasting: '持续', weight: '权重', at: '在', typed: '敲了', times: '次', repeat: '重复', newHere: '新出现（今天才落到这里，修改时间是旧的）', stay: '停留',
   minutes: '分钟', hours: '小时', hour: '小时',
@@ -64,7 +64,7 @@ const EN = {
   notesPh: 'e.g. Aligned requirements with the client in the morning, finished the export feature in the afternoon, pagination still pending.', notesSaving: 'Saving…', notesUnsaved: 'Unsaved', notesSaved: 'Saved',
   pickImage: 'Paste / pick image', removeImage: 'Remove this image', visionOn: 'Vision is on: images are sent to the model when writing.', visionOff: 'Images only reach the diary by file name. To let the model see them, enable "Model supports images" in Settings. You can also paste or drop images here.',
   drawerLabel: 'Module details', closeEsc: 'Close (Esc)', excludedForeverNote: 'This project is permanently excluded in Settings.', writeIn: 'Put in diary', excludeProject: 'Exclude project forever',
-  hintLabel: 'Your note (optional): what this was really about', hintPh: 'e.g. Watched an hour of Vue tutorials on this site. Or: this SQL was for the southwest plant’s efficiency report.',
+  hintLabel: 'Your note (optional): what this was really about', hintPh: 'e.g. Watched an hour of Vue tutorials on this site.',
   hintNote: 'Highest priority, same as your notes; the model follows it first. You can also attach an image or two.', saveHint: 'Save note', clearHint: 'Clear', addImage: 'Attach image', hintImgVisionOff: 'Attached images require a vision-capable model ("Model supports images" in Settings); otherwise writing will fail.',
   evidence: 'Evidence', reply: 'reply', with: 'with', lasting: 'lasting', weight: 'weight', at: 'in', typed: 'typed', times: 'times', repeat: 'repeated', newHere: 'new here today (old modification time)', stay: 'stayed',
   minutes: 'min', hours: 'h', hour: 'h',
