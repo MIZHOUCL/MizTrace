@@ -32,8 +32,9 @@ jobs:
           if(n>0){console.error('出现了第三方依赖，不允许');process.exit(1)}
           console.log('依赖数 0，OK')"
 
+      # npm test 会预加载 scripts/pin-timezone.mjs 把时区钉住，并用 spec 报告器 —— 失败的用例名和差异直接列在最后
       - name: 单元测试
-        run: node --test
+        run: npm test
 
       - name: 冒烟测试（对仓库自身跑一次）
         shell: bash

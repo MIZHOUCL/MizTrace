@@ -296,7 +296,8 @@ async function runWrite(cfg, range, flags) {
     try {
       res = await writeWithAI(cfg, { localDate: range.localDate, modules: selected, hints: day.dayState.hints, template, images: day.dayState.notes.images });
     } catch (err) {
-      logAiRun(db, { localDate: range.localDate, protocol: cfg.ai.protocol, model: cfg.ai.model, ok: false, error: err.message });
+      const r = err.result ?? {};
+      logAiRun(db, { localDate: range.localDate, protocol: r.protocol ?? cfg.ai.protocol, model: r.model ?? cfg.ai.model, inputTokens: r.usage?.input, outputTokens: r.usage?.output, latencyMs: r.latencyMs, ok: false, error: err.message });
       process.stderr.write(`${err instanceof SecretsFoundError ? '熔断：' : '失败：'}${err.message}\n`);
       return 1;
     }

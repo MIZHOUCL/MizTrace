@@ -79,6 +79,8 @@ miztrace ui
 
 网页右上角「设置」里填三样：Base URL、API key、模型名。DeepSeek、智谱、Moonshot、通义、OpenRouter、Ollama 都是 OpenAI 兼容协议，填到 `/v1` 为止；Anthropic 协议按 URL 自动识别。点「测试连接」通了就行，没有别的开关。
 
+模型名用服务商的**稳定名字**（DeepSeek 是 `deepseek-chat`，推理版 `deepseek-reasoner`）。名字里带 `expires` / `preview` 的限时模型下线后，服务常常仍返回 200 但内容为空，MizTrace 会报「模型返回了空内容」并提示换模型。推理模型会把「最大输出」先花在思考上，报截断就把它调大（默认 4000）。
+
 多模态模型勾上「模型支持图片」，手记和补充说明里的图就会发原图。
 
 ## 隐私细则
@@ -96,8 +98,10 @@ miztrace ui
 ## 开发
 
 ```bash
-node --test
+npm test
 ```
+
+测试统一钉在 Asia/Shanghai 时区跑（`scripts/pin-timezone.mjs`），所以在 UTC 的 CI 和任何时区的机器上结果一致。
 
 `src/collect/` 采集，`src/modules.js` 聚成模块，`src/ai/` 写作（唯一允许出站），`src/server/` 本地服务（唯一允许监听），`web/` 无构建的 Vue 前端。
 

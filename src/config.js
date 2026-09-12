@@ -154,7 +154,8 @@ export const DEFAULTS = {
     baseUrl: '',
     apiKey: '',
     model: '',
-    maxTokens: 2000,
+    /** 两层日记（概览 + 过程）用中文写，2000 tokens 常常不够写完就被截断；推理模型还要算上思考。 */
+    maxTokens: 4000,
     temperature: 0.4,
     timeoutMs: 60_000,
     /** 每日调用上限（次），防手滑；0 = 不限。 */
@@ -228,7 +229,7 @@ export function mergeAiConfig(current, incoming) {
   next.baseUrl = String(next.baseUrl ?? '').trim().replace(/\/+$/, '');
   next.model = String(next.model ?? '').trim();
   next.style = String(next.style ?? '').trim().slice(0, 2000);
-  next.maxTokens = Math.max(200, Math.min(32_000, Number(next.maxTokens) || 2000));
+  next.maxTokens = Math.max(200, Math.min(32_000, Number(next.maxTokens) || 4000));
   next.temperature = Math.max(0, Math.min(2, Number(next.temperature) || 0));
   return next;
 }

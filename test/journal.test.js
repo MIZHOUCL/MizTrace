@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { journalFromModules, allFacts, renderJournalMarkdown, metaOf } from '../src/journal.js';
+import { hhmm } from '../src/time.js';
 import { openDb, upsertEvidence, getDayState, setOverrides, setHint, logAiRun, aiUsageToday } from '../src/db.js';
 import { validateReferences } from '../src/facts.js';
 import { applySelection, matchesExcludeProjects } from '../src/day.js';
@@ -78,8 +79,10 @@ test('applySelection 对同一批模块反复套用：默认值只记第一次�
 });
 
 test('metaOf：用了 AI 工具的模块带工具名，没有的不多一个字', () => {
-  assert.equal(metaOf(mod({ toolNames: ['Codex', 'WorkBuddy'] })), 'proj ｜ Codex、WorkBuddy ｜ 16:00–17:00 ｜ 代码 ｜ 1 提交 · 1 提问 · 1 文件');
-  assert.equal(metaOf(mod()), 'proj ｜ 16:00–17:00 ｜ 代码 ｜ 1 提交 · 1 提问 · 1 文件');
+  // 时间按本机时区渲染（UTC+8 上是 16:00–17:00，UTC 上是 08:00–09:00），别写死
+  const span = `${hhmm('2026-09-07T08:00:00Z')}–${hhmm('2026-09-07T09:00:00Z')}`;
+  assert.equal(metaOf(mod({ toolNames: ['Codex', 'WorkBuddy'] })), `proj ｜ Codex、WorkBuddy ｜ ${span} ｜ 代码 ｜ 1 提交 · 1 提问 · 1 文件`);
+  assert.equal(metaOf(mod()), `proj ｜ ${span} ｜ 代码 ｜ 1 提交 · 1 提问 · 1 文件`);
 });
 
 test('day_state overrides 三态持久化 + 兼容旧数组格式；ai_runs 账本', () => {

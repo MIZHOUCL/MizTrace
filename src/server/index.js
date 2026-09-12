@@ -424,7 +424,8 @@ export async function startServer(opts) {
       try {
         res = await writeWithAI(cfg, { localDate, modules: selected, hints: day.dayState.hints, template, images: day.dayState.notes.images, lang: langOf(body.lang) });
       } catch (err) {
-        logAiRun(db, { localDate, protocol: cfg.ai.protocol, model: cfg.ai.model, ok: false, error: err.message });
+        const r = err.result ?? {};
+        logAiRun(db, { localDate, protocol: r.protocol ?? cfg.ai.protocol, model: r.model ?? cfg.ai.model, inputTokens: r.usage?.input, outputTokens: r.usage?.output, latencyMs: r.latencyMs, ok: false, error: err.message });
         if (err instanceof SecretsFoundError) return { blocked: true, hits: err.hits, error: err.message };
         throw err;
       }

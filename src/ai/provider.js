@@ -83,7 +83,8 @@ export const DEFAULT_TIMEOUT_MS = 180_000;
  * @param {{system:string, user:string, images?:{mime:string,data:string,label?:string}[]}} msg
  *   images：用户手记里的图片（base64），只有 ai.vision 打开时调用方才会传；两种协议都按各自的多模态块拼进 user 消息
  * @param {{fetchImpl?:typeof fetch}} [deps] 测试时注入
- * @returns {Promise<{text:string, usage:{input:number,output:number}, model:string, latencyMs:number, protocol:string}>}
+ * @returns {Promise<{text:string, usage:{input:number,output:number}, model:string, latencyMs:number, protocol:string, finishReason:string|null, reasoning:boolean}>}
+ *   finishReason：模型为什么停（length = 被 max_tokens 截断）；reasoning：回包里带了思考内容（推理模型）
  */
 export async function chat(cfg, msg, deps = {}) {
   const proto = validate(cfg);
@@ -139,7 +140,8 @@ export async function chat(cfg, msg, deps = {}) {
 
   const latencyMs = Date.now() - started;
   if (proto === 'anthropic') {
-    const parts = Array.isArray(json.content) ? json.content.filter((b) => b?.type === 'text').map((b) => b.text) : [];
+    const blocks = Array.isArray(json.content) ? json.content : [];
+    const parts = blocks.filter((b) => b?.type === 'text').map((b) => b.text);
     if (json.stop_reason === 'refusal') throw new Error('模型拒绝了这次请求（stop_reason=refusal）');
     return {
       text: parts.join('\n').trim(),
@@ -147,19 +149,45 @@ export async function chat(cfg, msg, deps = {}) {
       model: json.model ?? cfg.model,
       latencyMs,
       protocol: proto,
+      finishReason: json.stop_reason ?? null,
+      reasoning: blocks.some((b) => b?.type === 'thinking' || b?.type === 'redacted_thinking'),
     };
   }
   const choice = json.choices?.[0];
-  const content = choice?.message?.content;
-  const textOut = typeof content === 'string' ? content : Array.isArray(content) ? content.map((c) => c?.text ?? '').join('') : '';
+  const message = choice?.message ?? choice?.delta ?? {};
+  const content = message.content ?? choice?.text; // 个别网关按旧的 completions 形状回 text
+  const textOut = typeof content === 'string' ? content : Array.isArray(content) ? content.map((c) => (typeof c === 'string' ? c : c?.text ?? '')).join('') : '';
   if (!textOut && json.error) throw new Error(`模型服务报错：${scrubSecrets(JSON.stringify(json.error).slice(0, 300))}`);
+  const reasoningText = message.reasoning_content ?? message.reasoning ?? null;
   return {
     text: textOut.trim(),
     usage: { input: json.usage?.prompt_tokens ?? 0, output: json.usage?.completion_tokens ?? 0 },
     model: json.model ?? cfg.model,
     latencyMs,
     protocol: proto,
+    finishReason: choice?.finish_reason ?? null,
+    reasoning: typeof reasoningText === 'string' && reasoningText.trim().length > 0,
   };
+}
+
+/**
+ * 模型回了东西、但不是能用的 JSON 时，把「它到底回了什么」说清楚。
+ * 之前只有一句「模型没有返回 JSON」，用户对着它什么也做不了：是空的？被截断了？回了句人话？模型下线了？
+ * @param {{text:string, finishReason?:string|null, reasoning?:boolean, usage?:{output:number}}} result
+ * @param {string} model 配置里的模型名
+ */
+export function explainBadOutput(result, model) {
+  const text = String(result?.text ?? '').trim();
+  const cut = result?.finishReason === 'length' || result?.finishReason === 'max_tokens';
+  const tips = [];
+  if (!text) {
+    if (result?.reasoning || cut) tips.push('模型把输出预算用在了思考上或还没写完就被截断：把设置里的「最大输出」调大（例如 8000），或换一个不带思考的模型（如 deepseek-chat）');
+    else tips.push('模型服务返回了空内容：这个模型名可能已经下线或不可用（名字里带 expires / preview 的尤其如此），换成该服务的稳定模型名再试，或点「测试连接」看它现在回什么');
+    return `模型返回了空内容（finish_reason=${result?.finishReason ?? '未知'}${result?.usage?.output ? `，输出 ${result.usage.output} tokens` : ''}）。${tips.join('；')}。`;
+  }
+  const snippet = scrubSecrets(text.replace(/\s+/g, ' ').slice(0, 200));
+  if (cut) return `模型的输出被 max_tokens 截断了，没能写完 JSON。把设置里的「最大输出」调大（当前模型 ${model}）。它写到一半的内容：「${snippet}${text.length > 200 ? '…' : ''}」`;
+  return `模型没有按要求返回 JSON，而是回了这段话：「${snippet}${text.length > 200 ? '…' : ''}」。多半是这个模型（${model}）不听「只输出 JSON」的指令，或者服务把请求转给了别的东西：换个模型再试。`;
 }
 
 /** 测试连接：发一条最小请求，回报延迟与模型。永不抛出。 */
@@ -170,6 +198,8 @@ export async function testConnection(cfg, deps = {}) {
       { system: '你是一个连通性探针。', user: '只回复：OK' },
       deps,
     );
+    // 200 但什么都没回，也算不通：一个已经下线的模型名可能就是这样，不能报「连通」
+    if (!r.text) return { ok: false, error: explainBadOutput(r, cfg.model), protocol: r.protocol, latencyMs: r.latencyMs, model: r.model };
     return { ok: true, latencyMs: r.latencyMs, model: r.model, protocol: r.protocol, sample: r.text.slice(0, 40) };
   } catch (err) {
     return { ok: false, error: scrubSecrets(err?.message ?? String(err)), protocol: detectProtocol(cfg.baseUrl, cfg.protocol) };

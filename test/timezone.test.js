@@ -26,10 +26,13 @@ const SWITCH_PROBLEM = (() => {
 })();
 const SKIP = SWITCH_PROBLEM ? `当前运行时不支持切换时区，已由 applyTimeZone 明确报错：${SWITCH_PROBLEM}` : false;
 
-test('不传时区时跟随本机，返回本机 IANA 名', () => {
+test('不传时区时跟随本机，不改 TZ、不抛错', () => {
+  const before = process.env.TZ;
   const tz = applyTimeZone(null);
   assert.equal(tz, systemTimeZone());
-  assert.ok(tz === null || /^[A-Za-z]+\/[A-Za-z_+\-0-9/]+$|^UTC$/.test(tz), `意外的时区名：${tz}`);
+  // 名字长什么样由 ICU 决定：TZ=GMT 时它给的是「+00:00」而不是 IANA 名。程序只要求「拿得到、不抛」，这里也只断言这两点
+  assert.ok(tz === null || (typeof tz === 'string' && tz.length > 0), `意外的时区值：${tz}`);
+  assert.equal(process.env.TZ, before, '不传时区时不能碰 TZ');
 });
 
 test('非法时区名立刻报错，不静默退回 UTC', () => {

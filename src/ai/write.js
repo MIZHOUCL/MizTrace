@@ -8,7 +8,7 @@
 import os from 'node:os';
 import { hhmm } from '../time.js';
 import { redactPII, redactHome, scanSecrets } from './redact.js';
-import { chat } from './provider.js';
+import { chat, explainBadOutput } from './provider.js';
 import { metaOf } from '../journal.js';
 import { OUTLINE_KIND_LABEL } from '../collect/outline.js';
 import { pickTemplate } from './templates.js';
@@ -19,6 +19,15 @@ export class SecretsFoundError extends Error {
     super(`发送前检测到 ${hits.length} 处疑似密钥，已熔断（不会发送）：${hits.map((h) => `${h.kind}@${h.module}`).join('、')}`);
     this.name = 'SecretsFoundError';
     this.hits = hits;
+  }
+}
+
+/** 模型回了东西但不是能用的 JSON。带上 result，调用方好把用量和延迟记进 ai_runs（排查「空回复」全靠这个）。 */
+export class ModelOutputError extends Error {
+  constructor(message, result) {
+    super(message);
+    this.name = 'ModelOutputError';
+    this.result = result;
   }
 }
 
@@ -269,7 +278,13 @@ export async function writeWithAI(cfg, input, deps = {}) {
     }).filter(Boolean);
   }
   const result = await chat(cfg.ai, { system: prompt.system, user: prompt.user, images }, deps);
-  const parsed = parseModelJson(result.text);
+  let parsed;
+  try {
+    parsed = parseModelJson(result.text);
+  } catch (err) {
+    // 说清楚模型到底回了什么（空？截断？人话？），而不是一句「没有返回 JSON」
+    throw new ModelOutputError(`${explainBadOutput(result, cfg.ai?.model)}（${err.message}）`, result);
+  }
   const journal = entriesToJournal(parsed, prompt.refMap, input.modules);
   return { prompt, result, parsed, journal };
 }

@@ -254,3 +254,31 @@ test('buildPrompt：助手回复缩进跟在提问后，浏览带搜索词与次
   assert.match(p.system, /助手回复/);
   assert.match(p.system, /浏览/);
 });
+
+test('模型回了东西但不是 JSON：说清楚是空的、被截断、还是回了人话；ai_runs 能拿到用量', async () => {
+  const { explainBadOutput } = await import('../src/ai/provider.js');
+  const { ModelOutputError } = await import('../src/ai/write.js');
+  assert.match(explainBadOutput({ text: '', finishReason: 'stop', reasoning: false }, 'x-expires-on-0910'), /空内容[\s\S]*下线|不可用/);
+  assert.match(explainBadOutput({ text: '', finishReason: 'length', reasoning: true, usage: { output: 2000 } }, 'r1'), /最大输出/);
+  assert.match(explainBadOutput({ text: '{"overview":[{"text":"写到一半', finishReason: 'length' }, 'm'), /截断[\s\S]*最大输出/);
+  const prose = explainBadOutput({ text: '好的，今天你主要在修脚本。', finishReason: 'stop' }, 'm');
+  assert.match(prose, /没有按要求返回 JSON/);
+  assert.match(prose, /今天你主要在修脚本/, '把模型原话带上，用户才知道发生了什么');
+  assert.ok(!explainBadOutput({ text: `Bearer ${KEY}` }, 'm').includes(KEY), '原话里若混进密钥也要抹掉');
+
+  // 空回复：writeWithAI 抛 ModelOutputError，带上 result 好记账；错误信息里有解释
+  const empty = fakeFetch(() => ({ json: { model: 'm', choices: [{ message: { content: '', reasoning_content: '让我想想……' }, finish_reason: 'length' }], usage: { prompt_tokens: 900, completion_tokens: 2000 } } }));
+  await assert.rejects(
+    () => writeWithAI({ ai: { protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'm' } }, { localDate: '2026-09-07', modules: MODS }, empty),
+    (err) => err instanceof ModelOutputError && /最大输出/.test(err.message) && err.result.usage.output === 2000 && err.result.finishReason === 'length' && err.result.reasoning === true,
+  );
+  // 旧式 completions 形状（choices[].text）也认
+  const legacy = await chat({ protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'm' }, { system: 's', user: 'u' }, fakeFetch(() => ({ json: { choices: [{ text: '{"a":1}', finish_reason: 'stop' }] } })));
+  assert.equal(legacy.text, '{"a":1}');
+  assert.equal(legacy.finishReason, 'stop');
+  assert.equal(legacy.reasoning, false);
+  // 测试连接：200 但空内容 = 不通，并且说明原因
+  const dead = await testConnection({ protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'gone-expires-on-0910' }, fakeFetch(() => ({ json: { choices: [{ message: { content: '' } }] } })));
+  assert.equal(dead.ok, false);
+  assert.match(dead.error, /空内容/);
+});

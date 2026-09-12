@@ -12,7 +12,7 @@
     "node": ">=22.13.0 <23.0.0 || >=23.4.0"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node --import ./scripts/pin-timezone.mjs --test --test-reporter=spec --test-reporter-destination=stdout",
     "smoke": "node bin/miztrace.js today --dry-run",
     "ui": "node bin/miztrace.js ui"
   },
@@ -20,8 +20,7 @@
     "bin",
     "src",
     "web",
-    "README.md",
-    "THIRD_PARTY_NOTICES.md"
+    "README.md"
   ],
   "keywords": [
     "worklog",

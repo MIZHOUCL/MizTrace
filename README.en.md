@@ -81,6 +81,8 @@ Settings in the UI takes three fields: Base URL, API key, model name. DeepSeek, 
 
 Tick "Model supports images" for multimodal models to send images from notes as originals.
 
+Use the provider's stable model name (`deepseek-chat`, `deepseek-reasoner`, …). Time-limited names containing `expires` / `preview` often keep returning 200 with empty content after they are retired; MizTrace then reports "the model returned empty content" and suggests switching. Reasoning models spend "Max output" on thinking first; raise it (default 4000) if you see a truncation error.
+
 ## Privacy details
 
 - Reads only folders under `--root` and each AI tool's own session directory. Skips dotfiles, `node_modules`, and files like `.env` / `*.pem` / `id_rsa` (not even the path is recorded).
@@ -96,8 +98,10 @@ Data directory: macOS `~/Library/Application Support/miztrace`, Windows `%APPDAT
 ## Development
 
 ```bash
-node --test
+npm test
 ```
+
+Tests run pinned to the Asia/Shanghai timezone (`scripts/pin-timezone.mjs`), so results match between UTC CI and a machine in any timezone.
 
 `src/collect/` collectors, `src/modules.js` grouping, `src/ai/` writing (only outbound module), `src/server/` local server (only listening module), `web/` build-free Vue frontend.
 
@@ -105,4 +109,4 @@ Want another AI tool supported? Open an issue with a redacted sample session fil
 
 ## License
 
-MIT. Third-party notices in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+MIT. 

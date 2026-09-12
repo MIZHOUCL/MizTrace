@@ -253,9 +253,9 @@ export const SettingsModal = {
       <label for="f-key">API Key</label>
       <div><input id="f-key" type="password" v-model="f.ai.apiKey" :placeholder="keyPlaceholder" autocomplete="off"></div>
       <label for="f-model">{{ L('模型名', 'Model') }}</label>
-      <div><input id="f-model" v-model="f.ai.model" placeholder="deepseek-chat / glm-4-flash / claude-sonnet-5 …"></div>
+      <div><input id="f-model" v-model="f.ai.model" placeholder="deepseek-chat / glm-4-flash / claude-sonnet-5 …"><small>{{ L('用服务商的稳定名字；名字里带 expires / preview 的限时模型下线后常常只回空内容。', 'Use the stable model name from your provider; time-limited names with expires / preview often return empty content once retired.') }}</small></div>
       <label for="f-max">{{ L('最大输出', 'Max output') }}</label>
-      <div class="inline-fields"><input id="f-max" type="number" v-model.number="f.ai.maxTokens" class="short"><small>tokens</small></div>
+      <div class="inline-fields"><input id="f-max" type="number" v-model.number="f.ai.maxTokens" class="short"><small>{{ L('tokens。推理模型会先把它花在思考上，报「截断」就调大。', 'tokens. Reasoning models spend it on thinking first; raise it if you see a truncation error.') }}</small></div>
       <label for="f-limit">{{ L('每日上限', 'Daily limit') }}</label>
       <div class="inline-fields"><input id="f-limit" type="number" v-model.number="f.ai.dailyLimit" class="short"><small>{{ L('次，防手滑；0 = 不限。', 'calls; 0 = unlimited.') }}</small></div>
       <label>{{ L('能看图', 'Vision') }}</label>
