@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # 双平台是一等公民，任一平台失败即失败
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        # node:sqlite 在 22.5 加入，但直到 22.13 / 23.4 才不再需要 --experimental-sqlite，
+        # 所以 22.13 是真正的下限（22.5 会挂，已在 CI 上验证过）。
+        node: ['22.13', '24', '25']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 零依赖，所以没有 npm ci 这一步
+      - name: 确认没有第三方依赖
+        shell: bash
+        run: |
+          node -e "const p=require('./package.json');
+          const n=Object.keys(p.dependencies||{}).length+Object.keys(p.devDependencies||{}).length;
+          if(n>0){console.error('出现了第三方依赖，不允许');process.exit(1)}
+          console.log('依赖数 0，OK')"
+
+      - name: 单元测试
+        run: node --test
+
+      - name: 冒烟测试（对仓库自身跑一次）
+        shell: bash
+        env:
+          MIZTRACE_DATA_DIR: ${{ runner.temp }}/miztrace-ci
+        run: |
+          node bin/miztrace.js today --root . --dry-run
+          node bin/miztrace.js where
+          node bin/miztrace.js today --root . --out "$RUNNER_TEMP/out"
+          node bin/miztrace.js today --root . --out "$RUNNER_TEMP/out"
+          node bin/miztrace.js purge --yes
+
+      - name: 网络边界
+        shell: bash
+        run: |
+          # 出站请求只允许在 src/ai/ 里；入站 localhost 服务只允许在 src/server/ 里。
+          set -e
+          if grep -rnE "fetch\(|XMLHttpRequest|WebSocket|node:https?\b" src bin --include='*.js' \
+               --exclude-dir=ai --exclude-dir=server; then
+            echo "核心代码里出现了网络 API，不允许"; exit 1
+          fi
+          if grep -rnE "fetch\(|XMLHttpRequest|WebSocket" src/server; then
+            echo "服务端不允许出站请求"; exit 1
+          fi
+          if grep -rnE "node:https?\b|createServer" src/ai; then
+            echo "AI 模块不允许起服务"; exit 1
+          fi
+          echo "网络边界 OK：出站仅 src/ai，入站仅 src/server"
