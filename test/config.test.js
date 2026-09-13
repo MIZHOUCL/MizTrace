@@ -47,7 +47,8 @@ test('applyConfigPatch：来源开关、浏览器、目录、setupDone 都能改
     excludeProjects: ['secret'],
     bogus: true,
   });
-  assert.deepEqual(cfg.roots, ['/a', '/b']);
+  // roots 会被 path.resolve 成绝对路径：Windows 上 '/a' 是 'D:\\a'，期望值也得同样 resolve
+  assert.deepEqual(cfg.roots, ['/a', '/b'].map((r) => path.resolve(r)));
   assert.equal(cfg.rootsConfigured, true);
   assert.equal(cfg.fileScan.outline, false);
   assert.equal(cfg.fileScan.maxDepth, DEFAULTS.fileScan.maxDepth, '只接受 enabled / outline');
