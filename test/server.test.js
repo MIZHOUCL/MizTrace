@@ -31,6 +31,21 @@ async function boot(extra = {}) {
   return { srv, call, dir, cfg };
 }
 
+/**
+ * 伪造 Host / Origin 头必须走原生 http.request：Node 自带的 fetch（undici）按 URL 自己生成 Host、
+ * 不理会你传的 host，所以用 fetch 发「错 Host」服务端看到的仍是 127.0.0.1，会正确放行（CI 上曾因此 200 !== 403）。
+ */
+function rawStatus(port, headers, method = 'GET', p = '/api/state') {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, method, path: p, headers, agent: false }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 test('静态页面可访问，带 CSP；API 无 token → 401；错 Host → 403', { skip: SKIP }, async () => {
   const { srv, call, dir } = await boot();
   try {
@@ -40,10 +55,8 @@ test('静态页面可访问，带 CSP；API 无 token → 401；错 Host → 403
     assert.match(await page.text(), /vue\.global\.prod\.js/);
     const noTok = await fetch(`http://127.0.0.1:${srv.port}/api/state`);
     assert.equal(noTok.status, 401);
-    const badHost = await fetch(`http://127.0.0.1:${srv.port}/api/state`, { headers: { host: 'evil.example.com', 'x-miztrace-token': srv.token } });
-    assert.equal(badHost.status, 403);
-    const badOrigin = await fetch(`http://127.0.0.1:${srv.port}/api/state`, { headers: { origin: 'https://evil.example.com', 'x-miztrace-token': srv.token } });
-    assert.equal(badOrigin.status, 403);
+    assert.equal(await rawStatus(srv.port, { host: 'evil.example.com', 'x-miztrace-token': srv.token }), 403);
+    assert.equal(await rawStatus(srv.port, { origin: 'https://evil.example.com', 'x-miztrace-token': srv.token }), 403);
     const traversal = await fetch(`http://127.0.0.1:${srv.port}/../package.json`);
     assert.equal(traversal.status, 404);
     const ok = await call('GET', '/api/state');
