@@ -189,6 +189,9 @@ MizTrace 现在做的是把每一天记准。日记攒多了，它能做的远�
 
 不变的约束：所有这些都在本机跑；出站的只有你确认过的那一次请求；每一句话都能点回证据。哪个模块你最想要，或者想认领，来 issue 里说一声。
 
+## Community
+[linux.do](https://linux.do/) - A thriving developer community.
+
 ## 开发
 
 ```bash

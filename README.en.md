@@ -189,6 +189,9 @@ It does not make things up: a skill that is not in the profile does not appear o
 
 What will not change: everything runs locally; the only outbound request is the one you confirmed; every sentence links back to evidence. Want a module first, or want to build one? Say so in an issue.
 
+## Community
+[linux.do](https://linux.do/) - A thriving developer community.
+
 ## Development
 
 ```bash
