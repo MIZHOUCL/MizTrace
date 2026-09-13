@@ -302,6 +302,10 @@ async function runWrite(cfg, range, flags) {
       return 1;
     }
     logAiRun(db, { localDate: range.localDate, protocol: res.result.protocol, model: res.result.model, inputTokens: res.result.usage.input, outputTokens: res.result.usage.output, latencyMs: res.result.latencyMs, ok: true });
+    if (res.result.retriedWith && res.result.retriedWith > (Number(cfg.ai.maxTokens) || 0) && !flags['dry-run']) {
+      cfg.ai.maxTokens = res.result.retriedWith; // 能用的预算存进配置，下次一次成功
+      saveConfig(cfg);
+    }
     res.journal.excludedCount = day.modules.length - selected.length;
     const { downgraded } = validateReferences(db, allFacts(res.journal), datesIn(range, cfg.cutoffHour));
     const markdown = renderJournalMarkdown(res.journal, { localDate: range.localDate, evidenceIndex: day.evidenceIndex, footer: footer(cfg), source: 'ai' });
@@ -309,7 +313,7 @@ async function runWrite(cfg, range, flags) {
     if (flags.json) process.stdout.write(`${JSON.stringify({ markdown, usage: res.result.usage, model: res.result.model, downgraded }, null, 2)}\n`);
     else {
       process.stdout.write(`${markdown}\n`);
-      process.stderr.write(`模型 ${res.result.model}｜输入 ${res.result.usage.input} / 输出 ${res.result.usage.output} tokens｜${res.result.latencyMs} ms${downgraded ? `｜${downgraded} 条引用无效已降级` : ''}\n`);
+      process.stderr.write(`模型 ${res.result.model}｜输入 ${res.result.usage.input} / 输出 ${res.result.usage.output} tokens｜${res.result.latencyMs} ms${res.result.retriedWith ? `｜第一次输出预算不够，已按 ${res.result.retriedWith} 重试成功，并把 ai.maxTokens 改成了这个数` : ''}${downgraded ? `｜${downgraded} 条引用无效已降级` : ''}\n`);
     }
     return 0;
   } finally {

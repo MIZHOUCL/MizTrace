@@ -79,7 +79,7 @@ miztrace ui
 
 网页右上角「设置」里填三样：Base URL、API key、模型名。DeepSeek、智谱、Moonshot、通义、OpenRouter、Ollama 都是 OpenAI 兼容协议，填到 `/v1` 为止；Anthropic 协议按 URL 自动识别。点「测试连接」通了就行，没有别的开关。
 
-模型名用服务商的**稳定名字**（DeepSeek 是 `deepseek-chat`，推理版 `deepseek-reasoner`）。名字里带 `expires` / `preview` 的限时模型下线后，服务常常仍返回 200 但内容为空，MizTrace 会报「模型返回了空内容」并提示换模型。推理模型会把「最大输出」先花在思考上，报截断就把它调大（默认 4000）。
+模型名用服务商的**稳定名字**（DeepSeek 是 `deepseek-chat`，推理版 `deepseek-reasoner`）。名字里带 `expires` / `preview` 的限时模型下线后，服务常常仍返回 200 但内容为空，MizTrace 会报「模型返回了空内容」并提示换模型。带思考的模型（DeepSeek V4 flash / reasoner、o 系列）会把「最大输出」先花在思考上，预算小了正文一个字都出不来。MizTrace 发现这种情况会自动加大预算重试一次（带思考至少 16000，普通截断至少 8000），成功后把这个数存回设置，下次一次成功。OpenAI 推理模型那套 `max_completion_tokens`、不接受 `temperature` 的差异也会按 400 里的提示自动适配。
 
 多模态模型勾上「模型支持图片」，手记和补充说明里的图就会发原图。
 

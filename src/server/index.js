@@ -430,11 +430,16 @@ export async function startServer(opts) {
         throw err;
       }
       logAiRun(db, { localDate, protocol: res.result.protocol, model: res.result.model, inputTokens: res.result.usage.input, outputTokens: res.result.usage.output, latencyMs: res.result.latencyMs, ok: true });
+      // 第一次预算不够、加大后写成了：把能用的预算直接存进设置，下次一次成功，不用每次都白跑一趟
+      if (res.result.retriedWith && res.result.retriedWith > (Number(cfg.ai.maxTokens) || 0)) {
+        cfg.ai.maxTokens = res.result.retriedWith;
+        saveConfig(cfg);
+      }
       res.journal.excludedCount = day.modules.length - selected.length;
       const { downgraded } = validateReferences(db, allFacts(res.journal), localDate);
       const markdown = renderJournalMarkdown(res.journal, { localDate, evidenceIndex: day.evidenceIndex, footer: footerOf(cfg), source: 'ai', lang: langOf(body.lang) });
       setDraft(db, localDate, markdown, { source: 'ai', usage: res.result.usage, model: res.result.model, latencyMs: res.result.latencyMs, template: template.name });
-      return { markdown, clean: stripAnnotations(markdown), usage: res.result.usage, model: res.result.model, latencyMs: res.result.latencyMs, downgraded, source: 'ai', template: template.name };
+      return { markdown, clean: stripAnnotations(markdown), usage: res.result.usage, model: res.result.model, latencyMs: res.result.latencyMs, downgraded, source: 'ai', template: template.name, retriedWith: res.result.retriedWith ?? null };
     },
     async 'POST /api/save'(q, body) {
       const localDate = dateOr(body.date, cfg);

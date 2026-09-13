@@ -283,6 +283,8 @@ export function loadConfig() {
   cfg.sessionDirs = { ...defaultSessionDirs(), ...(onDisk.sessionDirs || {}) };
   cfg.ai = { ...DEFAULTS.ai, ...(onDisk.ai || {}) };
   delete cfg.ai.enabled;
+  // 2000 是老版本写进配置文件的默认值，中文两层日记经常写不完就被截断；带思考的模型更是一个字都出不来。抬到新默认。
+  if (cfg.ai.maxTokens === 2000) cfg.ai.maxTokens = DEFAULTS.ai.maxTokens;
   cfg.fileScan = { ...DEFAULTS.fileScan, ...(onDisk.fileScan || {}) };
   cfg.sessions = { ...DEFAULTS.sessions, ...(onDisk.sessions || {}) };
   cfg.browser = { ...DEFAULTS.browser, ...(onDisk.browser || {}) };

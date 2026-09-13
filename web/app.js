@@ -199,7 +199,8 @@ createApp({
           error.value = r.error;
           return;
         }
-        aiDraft.value = { markdown: r.markdown, clean: r.clean, source: 'ai', usage: r.usage, model: r.model, latencyMs: r.latencyMs, downgraded: r.downgraded, template: r.template };
+        aiDraft.value = { markdown: r.markdown, clean: r.clean, source: 'ai', usage: r.usage, model: r.model, latencyMs: r.latencyMs, downgraded: r.downgraded, template: r.template, retriedWith: r.retriedWith };
+        if (r.retriedWith) showToast(t('retriedWith', { n: r.retriedWith }));
         draft.value = aiDraft.value;
         meta.usage = (await api('GET', `/api/day?date=${encodeURIComponent(date.value)}`)).usage;
         await nextTick();
@@ -463,7 +464,7 @@ createApp({
     <section class="sheet" v-if="draft" aria-label="diary">
       <div class="tools">
         <strong>{{ draft.source==='ai' ? t('aiDiary') : t('rulesDiary') }}</strong>
-        <span class="u" v-if="draft.usage">{{ draft.model }}<template v-if="draft.template">, {{ t('template') }} "{{ draft.template }}"</template>, {{ t('input') }} {{ num(draft.usage.input) }} / {{ t('output') }} {{ num(draft.usage.output) }} tokens<template v-if="draft.downgraded">, {{ draft.downgraded }} {{ t('downgraded') }}</template></span>
+        <span class="u" v-if="draft.usage">{{ draft.model }}<template v-if="draft.template">, {{ t('template') }} "{{ draft.template }}"</template>, {{ t('input') }} {{ num(draft.usage.input) }} / {{ t('output') }} {{ num(draft.usage.output) }} tokens<template v-if="draft.downgraded">, {{ draft.downgraded }} {{ t('downgraded') }}</template><template v-if="draft.retriedWith">, {{ t('retriedMeta', {n: draft.retriedWith}) }}</template></span>
         <span class="spacer"></span>
         <button class="btn small" v-if="draft.source !== 'ai' && aiDraft" @click="showAi">{{ t('backToAi') }}</button>
         <button class="btn small" v-if="draft.source === 'ai' && rulesDraft" @click="showRules">{{ t('backToRules') }}</button>

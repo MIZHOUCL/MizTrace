@@ -8,7 +8,7 @@
 import os from 'node:os';
 import { hhmm } from '../time.js';
 import { redactPII, redactHome, scanSecrets } from './redact.js';
-import { chat, explainBadOutput } from './provider.js';
+import { chat, explainBadOutput, looksLikeBudgetProblem, retryBudget } from './provider.js';
 import { metaOf } from '../journal.js';
 import { OUTLINE_KIND_LABEL } from '../collect/outline.js';
 import { pickTemplate } from './templates.js';
@@ -277,14 +277,46 @@ export async function writeWithAI(cfg, input, deps = {}) {
       return loaded ? { ...loaded, label: `${im.name}，对应证据 ${im.ref}` } : null;
     }).filter(Boolean);
   }
-  const result = await chat(cfg.ai, { system: prompt.system, user: prompt.user, images }, deps);
-  let parsed;
-  try {
-    parsed = parseModelJson(result.text);
-  } catch (err) {
+  const msg = { system: prompt.system, user: prompt.user, images };
+  let result = await chat(cfg.ai, msg, deps);
+  let parsed = tryParse(result.text);
+  // 输出预算不够（被截断，或带思考的模型把预算全想掉了）：自动加大预算再试一次，别让用户自己去猜要调哪个数
+  if (!parsed && looksLikeBudgetProblem(result)) {
+    const bigger = retryBudget(cfg.ai?.maxTokens, { reasoning: result.reasoning === true });
+    if (bigger > (Number(cfg.ai?.maxTokens) || 2000)) {
+      const first = result;
+      try {
+        result = await chat({ ...cfg.ai, maxTokens: bigger }, msg, deps);
+      } catch (err) {
+        // 有的服务不接受这么大的 max_tokens（400）：那就按第一次的情况报，别让重试的报错盖住真正的原因
+        throw new ModelOutputError(`${explainBadOutput(first, cfg.ai?.model)}（加大预算重试时服务报错：${err.message}）`, first);
+      }
+      // 两次都算钱：用量合并，好在 ai_runs 里如实记账
+      result.usage = { input: (first.usage?.input ?? 0) + (result.usage?.input ?? 0), output: (first.usage?.output ?? 0) + (result.usage?.output ?? 0) };
+      result.latencyMs = (first.latencyMs ?? 0) + (result.latencyMs ?? 0);
+      result.retriedWith = bigger;
+      parsed = tryParse(result.text);
+      if (!parsed) throw new ModelOutputError(explainBadOutput(result, cfg.ai?.model, { retriedWith: bigger }), result);
+    }
+  }
+  if (!parsed) {
     // 说清楚模型到底回了什么（空？截断？人话？），而不是一句「没有返回 JSON」
-    throw new ModelOutputError(`${explainBadOutput(result, cfg.ai?.model)}（${err.message}）`, result);
+    let why = '';
+    try {
+      parseModelJson(result.text);
+    } catch (err) {
+      why = err.message;
+    }
+    throw new ModelOutputError(`${explainBadOutput(result, cfg.ai?.model)}${why ? `（${why}）` : ''}`, result);
   }
   const journal = entriesToJournal(parsed, prompt.refMap, input.modules);
   return { prompt, result, parsed, journal };
+}
+
+function tryParse(text) {
+  try {
+    return parseModelJson(text);
+  } catch {
+    return null;
+  }
 }

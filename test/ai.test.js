@@ -266,12 +266,13 @@ test('模型回了东西但不是 JSON：说清楚是空的、被截断、还是
   assert.match(prose, /今天你主要在修脚本/, '把模型原话带上，用户才知道发生了什么');
   assert.ok(!explainBadOutput({ text: `Bearer ${KEY}` }, 'm').includes(KEY), '原话里若混进密钥也要抹掉');
 
-  // 空回复：writeWithAI 抛 ModelOutputError，带上 result 好记账；错误信息里有解释
+  // 空回复（思考吃光预算）：自动加大预算重试一次，仍空 → 抛 ModelOutputError，带上两次合并的用量好记账；错误信息里有解释
   const empty = fakeFetch(() => ({ json: { model: 'm', choices: [{ message: { content: '', reasoning_content: '让我想想……' }, finish_reason: 'length' }], usage: { prompt_tokens: 900, completion_tokens: 2000 } } }));
   await assert.rejects(
     () => writeWithAI({ ai: { protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'm' } }, { localDate: '2026-09-07', modules: MODS }, empty),
-    (err) => err instanceof ModelOutputError && /最大输出/.test(err.message) && err.result.usage.output === 2000 && err.result.finishReason === 'length' && err.result.reasoning === true,
+    (err) => err instanceof ModelOutputError && /最大输出/.test(err.message) && err.result.usage.output === 4000 && err.result.retriedWith === 16000 && err.result.finishReason === 'length' && err.result.reasoning === true,
   );
+  assert.equal(empty.seen.length, 2, '带思考 → 按 16000 重试了一次');
   // 旧式 completions 形状（choices[].text）也认
   const legacy = await chat({ protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'm' }, { system: 's', user: 'u' }, fakeFetch(() => ({ json: { choices: [{ text: '{"a":1}', finish_reason: 'stop' }] } })));
   assert.equal(legacy.text, '{"a":1}');
@@ -281,4 +282,112 @@ test('模型回了东西但不是 JSON：说清楚是空的、被截断、还是
   const dead = await testConnection({ protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'gone-expires-on-0910' }, fakeFetch(() => ({ json: { choices: [{ message: { content: '' } }] } })));
   assert.equal(dead.ok, false);
   assert.match(dead.error, /空内容/);
+});
+
+test('输出预算不够时自动加大重试：截断 / 带思考回空都触发，用量合并；重试也不行就按第一次的情况报，并附原始回包片段', async () => {
+  const { ModelOutputError } = await import('../src/ai/write.js');
+  const { looksLikeBudgetProblem, retryBudget } = await import('../src/ai/provider.js');
+  assert.equal(looksLikeBudgetProblem({ text: '', finishReason: 'length' }), true);
+  assert.equal(looksLikeBudgetProblem({ text: '', finishReason: 'stop', reasoning: true }), true, '思考模型把预算想光：content 空、finish_reason 却是 stop');
+  assert.equal(looksLikeBudgetProblem({ text: '', finishReason: 'stop', reasoning: false }), true, '看不到思考、finish_reason 也是 stop 的空回复也先加大预算试一次');
+  assert.equal(looksLikeBudgetProblem({ text: '好的，今天……', finishReason: 'stop' }), false);
+  assert.equal(retryBudget(2000), 8000, '普通截断：至少 8000');
+  assert.equal(retryBudget(4000), 8000);
+  assert.equal(retryBudget(6000), 12000);
+  assert.equal(retryBudget(2000, { reasoning: true }), 16000, '带思考：至少 16000');
+  assert.equal(retryBudget(6000, { reasoning: true }), 24000);
+  assert.equal(retryBudget(30000, { reasoning: true }), 32000);
+
+  const ok = JSON.stringify({ overview: [{ text: '同步做完了', refs: ['e1'] }], entries: [{ topic: '同步', text: '把行关闭同步到 SRM。', refs: ['e1'] }] });
+  // 第一次：思考吃光 2000 tokens，content 为空；第二次（预算 8000）：正常
+  let calls = 0;
+  const srv = fakeFetch(({ body }) => {
+    calls += 1;
+    if (calls === 1) return { json: { model: 'r', choices: [{ message: { content: '', reasoning_content: '用户今天……' }, finish_reason: 'length' }], usage: { prompt_tokens: 900, completion_tokens: 2000 } } };
+    return { json: { model: 'r', choices: [{ message: { content: ok, reasoning_content: '……' }, finish_reason: 'stop' }], usage: { prompt_tokens: 900, completion_tokens: 600 } } };
+  });
+  const r = await writeWithAI({ ai: { protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'r', maxTokens: 2000 } }, { localDate: '2026-09-07', modules: MODS }, srv);
+  assert.equal(calls, 2);
+  assert.equal(srv.seen[0].body.max_tokens, 2000);
+  assert.equal(srv.seen[1].body.max_tokens, 16000, '带思考的模型：重试用 16000');
+  assert.equal(r.result.retriedWith, 16000);
+  assert.deepEqual(r.result.usage, { input: 1800, output: 2600 }, '两次的用量都记');
+  assert.equal(r.journal.sections[0].facts[0].text, '把行关闭同步到 SRM。');
+
+  // 两次都空：报第一次的情况，说明已重试，带原始回包片段
+  const dead = fakeFetch(() => ({ json: { model: 'r', choices: [{ message: { content: '', reasoning_content: '想了很久' }, finish_reason: 'length' }], usage: { completion_tokens: 8000 } } }));
+  await assert.rejects(
+    () => writeWithAI({ ai: { protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'r', maxTokens: 2000 } }, { localDate: '2026-09-07', modules: MODS }, dead),
+    (err) => err instanceof ModelOutputError && /已自动把「最大输出」加到 16000/.test(err.message) && /服务原始回包/.test(err.message) && /reasoning_content/.test(err.message) && /deepseek-chat/.test(err.message),
+  );
+  assert.equal(dead.seen.length, 2);
+
+  // 重试被服务拒绝（max_tokens 太大 → 400）：仍按第一次的情况报，不被 400 盖住
+  let n = 0;
+  const picky = fakeFetch(() => {
+    n += 1;
+    if (n === 1) return { json: { choices: [{ message: { content: '{"overview":[{"text":"写到一半' }, finish_reason: 'length' }] } };
+    return { status: 400, json: { error: { message: 'max_tokens too large' } } };
+  });
+  await assert.rejects(
+    () => writeWithAI({ ai: { protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'm', maxTokens: 2000 } }, { localDate: '2026-09-07', modules: MODS }, picky),
+    (err) => err instanceof ModelOutputError && /被 max_tokens 截断/.test(err.message) && /写到一半/.test(err.message) && /HTTP 400/.test(err.message),
+  );
+
+  // 不带思考的空回复：也加大预算试一次；仍然空才按「模型名下线」报
+  const gone = fakeFetch(() => ({ json: { choices: [{ message: { content: '' }, finish_reason: 'stop' }] } }));
+  await assert.rejects(() => writeWithAI({ ai: { protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'x-expires-on-0910', maxTokens: 2000 } }, { localDate: '2026-09-07', modules: MODS }, gone), /下线或不可用/);
+  assert.equal(gone.seen.length, 2);
+  assert.equal(gone.seen[1].body.max_tokens, 8000);
+
+  // 测试连接：推理模型在 16 个 token 里只来得及想 → 算连通
+  const think = await testConnection({ protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'r' }, fakeFetch(() => ({ json: { model: 'r', choices: [{ message: { content: '', reasoning_content: '嗯' }, finish_reason: 'length' }] } })));
+  assert.equal(think.ok, true);
+  assert.equal(think.reasoning, true);
+});
+
+test('loadConfig：老配置里的 maxTokens 2000 抬到新默认，其它值原样保留', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-cfg-'));
+  const prev = process.env.MIZTRACE_DATA_DIR;
+  process.env.MIZTRACE_DATA_DIR = dir;
+  try {
+    const { loadConfig, DEFAULTS } = await import('../src/config.js');
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: { model: 'm', maxTokens: 2000 } }));
+    assert.equal(loadConfig().ai.maxTokens, DEFAULTS.ai.maxTokens);
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: { model: 'm', maxTokens: 1500 } }));
+    assert.equal(loadConfig().ai.maxTokens, 1500, '用户自己改过的值不动');
+  } finally {
+    if (prev === undefined) delete process.env.MIZTRACE_DATA_DIR;
+    else process.env.MIZTRACE_DATA_DIR = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('OpenAI 兼容的参数分歧：400 说要 max_completion_tokens 就换字段再发；说不支持 temperature 就去掉再发；别的 400 照实报', async () => {
+  const { compatFix } = await import('../src/ai/provider.js');
+  assert.deepEqual(compatFix({ model: 'm', max_tokens: 4000, temperature: 0.4 }, 400, "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."), { model: 'm', temperature: 0.4, max_completion_tokens: 4000 });
+  assert.deepEqual(compatFix({ model: 'm', temperature: 0.4 }, 400, "Unsupported value: 'temperature' does not support 0.4 with this model. Only the default (1) value is supported."), { model: 'm' });
+  assert.equal(compatFix({ model: 'm', max_tokens: 1 }, 400, 'invalid api key'), null);
+  assert.equal(compatFix({ model: 'm', max_tokens: 1 }, 429, 'max_completion_tokens'), null, '只处理 400');
+
+  let n = 0;
+  const o = fakeFetch(({ body }) => {
+    n += 1;
+    if (body.max_tokens !== undefined) return { status: 400, json: { error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.", type: 'invalid_request_error' } } };
+    if (body.temperature !== undefined) return { status: 400, json: { error: { message: "Unsupported value: 'temperature' does not support 0.4 with this model." } } };
+    return { json: { model: 'o3', choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 3 } } };
+  });
+  const r = await chat({ protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'o3', maxTokens: 4000 }, { system: 's', user: 'u' }, o);
+  assert.equal(n, 3, '两次按提示改参数，第三次成功');
+  assert.equal(o.seen[2].body.max_completion_tokens, 4000);
+  assert.equal(o.seen[2].body.max_tokens, undefined);
+  assert.equal(o.seen[2].body.temperature, undefined);
+  assert.equal(r.text, '{"ok":true}');
+  // 无关的 400 不重试
+  const bad = fakeFetch(() => ({ status: 400, json: { error: { message: 'Model Not Exist' } } }));
+  await assert.rejects(() => chat({ protocol: 'openai', baseUrl: 'https://x.example/v1', apiKey: KEY, model: 'nope' }, { system: 's', user: 'u' }, bad), /HTTP 400[\s\S]*Model Not Exist/);
+  assert.equal(bad.seen.length, 1);
 });

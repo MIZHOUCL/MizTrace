@@ -81,7 +81,7 @@ Settings in the UI takes three fields: Base URL, API key, model name. DeepSeek, 
 
 Tick "Model supports images" for multimodal models to send images from notes as originals.
 
-Use the provider's stable model name (`deepseek-chat`, `deepseek-reasoner`, …). Time-limited names containing `expires` / `preview` often keep returning 200 with empty content after they are retired; MizTrace then reports "the model returned empty content" and suggests switching. Reasoning models spend "Max output" on thinking first; raise it (default 4000) if you see a truncation error.
+Use the provider's stable model name (`deepseek-chat`, `deepseek-reasoner`, …). Time-limited names containing `expires` / `preview` often keep returning 200 with empty content after they are retired; MizTrace then reports "the model returned empty content" and suggests switching. Reasoning models (DeepSeek V4 flash / reasoner, o-series) spend "Max output" on thinking first; with a small budget nothing of the answer comes back. MizTrace detects this, retries once with more (at least 16000 for reasoning models, 8000 for plain truncation) and saves the working value to Settings. OpenAI-style `max_completion_tokens` / no-`temperature` quirks are adapted automatically from the 400 message.
 
 ## Privacy details
 

@@ -255,7 +255,7 @@ export const SettingsModal = {
       <label for="f-model">{{ L('模型名', 'Model') }}</label>
       <div><input id="f-model" v-model="f.ai.model" placeholder="deepseek-chat / glm-4-flash / claude-sonnet-5 …"><small>{{ L('用服务商的稳定名字；名字里带 expires / preview 的限时模型下线后常常只回空内容。', 'Use the stable model name from your provider; time-limited names with expires / preview often return empty content once retired.') }}</small></div>
       <label for="f-max">{{ L('最大输出', 'Max output') }}</label>
-      <div class="inline-fields"><input id="f-max" type="number" v-model.number="f.ai.maxTokens" class="short"><small>{{ L('tokens。推理模型会先把它花在思考上，报「截断」就调大。', 'tokens. Reasoning models spend it on thinking first; raise it if you see a truncation error.') }}</small></div>
+      <div class="inline-fields"><input id="f-max" type="number" v-model.number="f.ai.maxTokens" class="short"><small>{{ L('tokens。带思考的模型（DeepSeek V4 flash / reasoner 这类）会先把它花在思考上，建议 16000 以上；预算不够时会自动加大重试并存回这里。', 'tokens. Reasoning models (DeepSeek V4 flash / reasoner, o-series) spend it on thinking first; use 16000 or more. When the budget runs out MizTrace retries with more and saves it here.') }}</small></div>
       <label for="f-limit">{{ L('每日上限', 'Daily limit') }}</label>
       <div class="inline-fields"><input id="f-limit" type="number" v-model.number="f.ai.dailyLimit" class="short"><small>{{ L('次，防手滑；0 = 不限。', 'calls; 0 = unlimited.') }}</small></div>
       <label>{{ L('能看图', 'Vision') }}</label>
@@ -285,7 +285,7 @@ export const SettingsModal = {
       <label></label>
       <div class="inline-fields">
         <button class="btn" @click="test" :disabled="testing">{{ testing ? L('测试中…', 'Testing…') : L('测试连接', 'Test connection') }}</button>
-        <span v-if="testResult" class="result" :class="testResult.ok ? 'ok' : 'bad'">{{ testResult.ok ? (L('连通：', 'OK: ') + testResult.model + ', ' + testResult.latencyMs + ' ms') : (L('失败：', 'Failed: ') + testResult.error) }}</span>
+        <span v-if="testResult" class="result" :class="testResult.ok ? 'ok' : 'bad'">{{ testResult.ok ? (L('连通：', 'OK: ') + testResult.model + ', ' + testResult.latencyMs + ' ms' + (testResult.reasoning ? L('（带思考的模型：「最大输出」建议 16000 以上）', ' (reasoning model: set Max output to 16000 or more)') : '')) : (L('失败：', 'Failed: ') + testResult.error) }}</span>
       </div>
     </div>
     <p class="fine">{{ L('填齐 URL、key、模型名就能用，没有别的开关。key 只保存在本机', 'Fill in URL, key and model and it works; no other switch. The key is stored only on this machine at') }} <code>{{ configPath }}</code>{{ L('（POSIX 下权限 600），页面只显示后 4 位，发送预览里不会出现 key。', ' (mode 600 on POSIX); only the last 4 chars are shown and it never appears in the preview.') }}</p>
