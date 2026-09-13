@@ -221,7 +221,8 @@ test('CodeBuddy / WorkBuddy：先按 Claude Code 的 jsonl 读，认不出再退
   assert.ok(dirs.workbuddy.includes('/h/.workbuddy'));
   assert.ok(dirs.workbuddy.some((d) => d.includes('Application Support/WorkBuddy')));
   const win = defaultSessionDirs({ home: 'C:\\Users\\x', platform: 'win32', env: { APPDATA: 'C:\\Users\\x\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\x\\AppData\\Local' } });
-  // 在 macOS 上跑测试时 path.join 用的是 /，只看片段
+  // 路径按传入的 platform 拼，不跟运行测试的机器走：macOS 上也要拼出反斜杠，Windows 上跑 darwin 用例也要拼出 /
+  assert.equal(win.workbuddy[0], 'C:\\Users\\x\\.workbuddy', '按目标平台拼路径');
   assert.ok(win.workbuddy.some((d) => d.includes('Roaming') && d.endsWith('WorkBuddy')), 'Roaming 下');
   assert.ok(win.workbuddy.some((d) => d.includes('Local') && d.endsWith('WorkBuddy')), 'Local 下');
   assert.ok(win.workbuddy.some((d) => d.endsWith('.workbuddy')), '家目录点目录');

@@ -44,47 +44,49 @@ export function configPath() {
 export function defaultSessionDirs(opts = {}) {
   const home = opts.home ?? os.homedir();
   const platform = opts.platform ?? process.platform;
+  // 按目标平台拼路径：传了 platform 就该给出那个平台的写法，不能跟着运行测试的机器走（Windows 上跑 darwin 用例会拼出反斜杠）
+  const P = platform === 'win32' ? path.win32 : path.posix;
   const env = opts.env ?? process.env;
-  const appData = env.APPDATA || path.join(home, 'AppData', 'Roaming');
-  const localAppData = env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
-  const xdgData = env.XDG_DATA_HOME || path.join(home, '.local', 'share');
-  const xdgConfig = env.XDG_CONFIG_HOME || path.join(home, '.config');
+  const appData = env.APPDATA || P.join(home, 'AppData', 'Roaming');
+  const localAppData = env.LOCALAPPDATA || P.join(home, 'AppData', 'Local');
+  const xdgData = env.XDG_DATA_HOME || P.join(home, '.local', 'share');
+  const xdgConfig = env.XDG_CONFIG_HOME || P.join(home, '.config');
   /** VS Code 系编辑器的 User 目录（插件数据在 User/globalStorage/<插件 id>）。 */
-  const userDir = (app) => (platform === 'darwin' ? path.join(home, 'Library', 'Application Support', app, 'User') : platform === 'win32' ? path.join(appData, app, 'User') : path.join(xdgConfig, app, 'User'));
-  const ext = (extId) => ['Code', 'Code - Insiders', 'VSCodium', 'Cursor', 'Windsurf', 'Trae'].map((app) => path.join(userDir(app), 'globalStorage', extId));
-  const dotAndApp = (dot, app) => [path.join(home, dot), ...(platform === 'win32' ? [path.join(appData, app), path.join(localAppData, app)] : [path.join(xdgData, app), path.join(xdgConfig, app)])];
+  const userDir = (app) => (platform === 'darwin' ? P.join(home, 'Library', 'Application Support', app, 'User') : platform === 'win32' ? P.join(appData, app, 'User') : P.join(xdgConfig, app, 'User'));
+  const ext = (extId) => ['Code', 'Code - Insiders', 'VSCodium', 'Cursor', 'Windsurf', 'Trae'].map((app) => P.join(userDir(app), 'globalStorage', extId));
+  const dotAndApp = (dot, app) => [P.join(home, dot), ...(platform === 'win32' ? [P.join(appData, app), P.join(localAppData, app)] : [P.join(xdgData, app), P.join(xdgConfig, app)])];
   /** 桌面应用的数据目录：macOS 在 Application Support，Windows 在 AppData 的 Roaming / Local，Linux 按 XDG。 */
-  const appDir = (app) => (platform === 'darwin' ? [path.join(home, 'Library', 'Application Support', app)] : platform === 'win32' ? [path.join(appData, app), path.join(localAppData, app)] : [path.join(xdgData, app.toLowerCase()), path.join(xdgConfig, app.toLowerCase())]);
+  const appDir = (app) => (platform === 'darwin' ? [P.join(home, 'Library', 'Application Support', app)] : platform === 'win32' ? [P.join(appData, app), P.join(localAppData, app)] : [P.join(xdgData, app.toLowerCase()), P.join(xdgConfig, app.toLowerCase())]);
   return {
-    'claude-code': [path.join(home, '.claude', 'projects')],
-    codex: [path.join(home, '.codex', 'sessions'), path.join(home, '.codex', 'archived_sessions')],
-    'gemini-cli': [path.join(home, '.gemini')],
-    'qwen-code': [path.join(home, '.qwen')],
-    iflow: [path.join(home, '.iflow')],
+    'claude-code': [P.join(home, '.claude', 'projects')],
+    codex: [P.join(home, '.codex', 'sessions'), P.join(home, '.codex', 'archived_sessions')],
+    'gemini-cli': [P.join(home, '.gemini')],
+    'qwen-code': [P.join(home, '.qwen')],
+    iflow: [P.join(home, '.iflow')],
     // opencode：Linux / macOS 在 XDG 数据目录；Windows 上它自己也用 ~/.local/share，再兜一下 AppData
-    opencode: [path.join(xdgData, 'opencode'), ...(platform === 'win32' ? [path.join(home, '.local', 'share', 'opencode'), path.join(localAppData, 'opencode'), path.join(appData, 'opencode')] : [])],
+    opencode: [P.join(xdgData, 'opencode'), ...(platform === 'win32' ? [P.join(home, '.local', 'share', 'opencode'), P.join(localAppData, 'opencode'), P.join(appData, 'opencode')] : [])],
     // Hermes Agent（Nous Research）：状态目录 ~/.hermes（state.db + 各种 JSON）；没拿到样例
-    hermes: [path.join(home, '.hermes')],
+    hermes: [P.join(home, '.hermes')],
     cursor: [userDir('Cursor')],
     cline: ext('saoudrizwan.claude-dev'),
     'roo-code': ext('rooveterinaryinc.roo-cline'),
     'kilo-code': ext('kilocode.kilo-code'),
-    zcode: [path.join(home, '.zcode')],
+    zcode: [P.join(home, '.zcode')],
     'copilot-chat': [userDir('Code'), userDir('Code - Insiders'), userDir('VSCodium')],
     // Antigravity（Google 的 IDE）：实测 macOS 上 IDE 数据在 Application Support/Antigravity IDE，agent 对话目录在 ~/.gemini/antigravity-ide
-    antigravity: [userDir('Antigravity IDE'), userDir('Antigravity'), path.join(home, '.gemini', 'antigravity-ide', 'conversations'), path.join(home, '.gemini', 'antigravity', 'conversations')],
+    antigravity: [userDir('Antigravity IDE'), userDir('Antigravity'), P.join(home, '.gemini', 'antigravity-ide', 'conversations'), P.join(home, '.gemini', 'antigravity', 'conversations')],
     trae: [userDir('Trae'), userDir('TRAE SOLO'), userDir('Trae CN')],
-    windsurf: [userDir('Windsurf'), path.join(home, '.codeium', 'windsurf')],
+    windsurf: [userDir('Windsurf'), P.join(home, '.codeium', 'windsurf')],
     'kimi-code': dotAndApp('.kimi', 'kimi'),
     deepseek: dotAndApp('.deepseek', 'deepseek'),
-    'grok-build': [path.join(home, '.grok'), path.join(home, '.grokbuild'), path.join(home, '.grok-build')],
-    'copilot-cli': [path.join(home, '.copilot')],
-    codebuddy: [path.join(home, '.codebuddy')],
+    'grok-build': [P.join(home, '.grok'), P.join(home, '.grokbuild'), P.join(home, '.grok-build')],
+    'copilot-cli': [P.join(home, '.copilot')],
+    codebuddy: [P.join(home, '.codebuddy')],
     // 腾讯 WorkBuddy（CodeBuddy 团队的桌面版工作助手，Windows / macOS）：没拿到样例，只知道桌面应用大概会放在这几处；
     // 不在这些目录的话，把实际目录填进 config.json 的 sessionDirs.workbuddy
-    workbuddy: [path.join(home, '.workbuddy'), ...appDir('WorkBuddy'), ...appDir(path.join('Tencent', 'WorkBuddy'))],
-    goose: [path.join(xdgData, 'goose', 'sessions'), path.join(home, '.config', 'goose', 'sessions')],
-    crush: [path.join(xdgData, 'crush'), path.join(home, '.crush')],
+    workbuddy: [P.join(home, '.workbuddy'), ...appDir('WorkBuddy'), ...appDir(P.join('Tencent', 'WorkBuddy'))],
+    goose: [P.join(xdgData, 'goose', 'sessions'), P.join(home, '.config', 'goose', 'sessions')],
+    crush: [P.join(xdgData, 'crush'), P.join(home, '.crush')],
   };
 }
 
