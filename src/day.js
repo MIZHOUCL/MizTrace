@@ -8,7 +8,7 @@ import path from 'node:path';
 import { dataDir, syncDirWarning } from './config.js';
 import { todayLocalDate } from './time.js';
 import { upsertEvidence, getDayState } from './db.js';
-import { findRepos, collectRepo, gitAvailable, repoOf } from './collect/git.js';
+import { findRepos, collectRepo, filterNestedRepoStatus, gitAvailable, repoOf } from './collect/git.js';
 import { collectSessions } from './collect/sessions.js';
 import { scanFiles, projectDirOf } from './collect/files.js';
 import { readOutline, supportsOutline } from './collect/outline.js';
@@ -117,6 +117,7 @@ export function collectAll(cfg, range, flags) {
   let outlineBudget = MAX_OUTLINE_READS - outlineStats.read;
   for (const repo of repos) {
     const result = collectRepo(repo, range, { authorFilter: cfg.authorFilter });
+    result.dirty = filterNestedRepoStatus(repo, result.dirty, repos);
     gitWarnings.push(...(result.warnings ?? []));
     // 未提交改动属于「现在」，生成过去某天的日志时不能算进去
     if (!isToday) result.dirty = [];
