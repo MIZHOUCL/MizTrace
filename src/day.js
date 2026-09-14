@@ -21,6 +21,30 @@ import { buildModules } from './modules.js';
 /** 一次运行最多读多少个文档的大纲：够一天的量，又不至于让一个塞满文档的目录拖慢采集。 */
 const MAX_OUTLINE_READS = 300;
 
+/**
+ * 把一个仓库的 Git 结果按显式子项目根拆开。
+ * commit 同时命中多个子项目时仍归父项目，避免同一提交重复出现。
+ */
+export function routeGitResult(repo, result, resolveProject) {
+  const parentId = resolveProject(repo) ?? projectIdOf(repo);
+  const routeForPath = (relativePath) => resolveProject(path.join(repo, relativePath));
+  const buckets = new Map([[parentId, { ...result, commits: [], dirty: [], arrival: result.arrival }]]);
+  for (const c of result.commits) {
+    const ids = [...new Set(c.files.map((f) => routeForPath(f)).filter((id) => id && id !== parentId))];
+    const id = ids.length === 1 ? ids[0] : parentId;
+    if (!buckets.has(id)) buckets.set(id, { ...result, commits: [], dirty: [], arrival: null });
+    buckets.get(id).commits.push(c);
+  }
+  for (const d of result.dirty) {
+    const id = routeForPath(d.path) ?? parentId;
+    if (!buckets.has(id)) buckets.set(id, { ...result, commits: [], dirty: [], arrival: null });
+    buckets.get(id).dirty.push(d);
+  }
+  return [...buckets.entries()]
+    .map(([projectId, routed]) => ({ projectId, result: routed }))
+    .filter(({ result: routed }) => routed.commits.length || routed.dirty.length || routed.arrival);
+}
+
 /** 给文件条目补大纲（就地改 hit.outline）。返回统计。 */
 function attachOutlines(hits, pathOf, budget) {
   const stats = { read: 0, found: 0 };
@@ -117,23 +141,6 @@ export function collectAll(cfg, range, flags) {
 
   const gitByProject = new Map();
   const resolveProject = makeResolver(projects);
-  const routeForPath = (repo, relativePath) => resolveProject(path.join(repo, relativePath));
-  const routeGitResult = (repo, result) => {
-    const parentId = resolveProject(repo) ?? projectIdOf(repo);
-    const buckets = new Map([[parentId, { ...result, commits: [], dirty: [], arrival: result.arrival }]]);
-    for (const c of result.commits) {
-      const ids = [...new Set(c.files.map((f) => routeForPath(repo, f)).filter((id) => id && id !== parentId))];
-      const id = ids.length === 1 ? ids[0] : parentId;
-      if (!buckets.has(id)) buckets.set(id, { ...result, commits: [], dirty: [], arrival: null });
-      buckets.get(id).commits.push(c);
-    }
-    for (const d of result.dirty) {
-      const id = routeForPath(repo, d.path) ?? parentId;
-      if (!buckets.has(id)) buckets.set(id, { ...result, commits: [], dirty: [], arrival: null });
-      buckets.get(id).dirty.push(d);
-    }
-    return [...buckets.values()].filter((r) => r.commits.length || r.dirty.length || r.arrival);
-  };
   const isToday = range.localDate === todayLocalDate(cfg.cutoffHour);
   const gitWarnings = [];
   let outlineBudget = MAX_OUTLINE_READS - outlineStats.read;
@@ -149,10 +156,9 @@ export function collectAll(cfg, range, flags) {
       outlineStats.read += st.read;
       outlineStats.found += st.found;
     }
-    for (const routed of routeGitResult(repo, result)) {
-      const id = resolveProject(routed.repo) ?? projectIdOf(routed.repo);
-      if (!gitByProject.has(id)) gitByProject.set(id, []);
-      gitByProject.get(id).push(routed);
+    for (const routed of routeGitResult(repo, result, resolveProject)) {
+      if (!gitByProject.has(routed.projectId)) gitByProject.set(routed.projectId, []);
+      gitByProject.get(routed.projectId).push(routed.result);
     }
   }
   if (gitWarnings.length && !flags.json) {
@@ -217,12 +223,79 @@ export function collectAll(cfg, range, flags) {
   };
 }
 
-function persistProjects(db, projects, nowIso) {
+function rootKey(rootPath) {
+  const resolved = path.resolve(rootPath);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function uniquePersistedId(base, used) {
+  let id = base || 'unknown';
+  let n = 2;
+  while (used.has(id)) {
+    id = `${base}-${n}`;
+    n += 1;
+  }
+  return id;
+}
+
+function remapGrouped(source, remapId) {
+  const target = new Map();
+  for (const [id, values] of source ?? []) {
+    const nextId = remapId(id);
+    target.set(nextId, [...(target.get(nextId) ?? []), ...values]);
+  }
+  return target;
+}
+
+/**
+ * root_path 是跨运行的项目身份。发现同一路径已有旧 id 时复用旧 id，
+ * 并同步改写本次采集的全部分组，避免历史证据失联或同一路径重复建项目。
+ */
+function reconcileProjectIds(db, ctx) {
+  const existing = db.prepare('SELECT id, name, root_path, user_renamed FROM projects WHERE root_path IS NOT NULL').all();
+  const byRoot = new Map(existing.map((row) => [rootKey(row.root_path), row]));
+  const usedIds = new Set(existing.map((row) => row.id));
+  const aliases = new Map();
+
+  for (const project of ctx.projects) {
+    const originalId = project.id;
+    const stored = byRoot.get(rootKey(project.rootPath));
+    if (stored) {
+      project.id = stored.id;
+      project.rootPath = stored.root_path;
+      if (stored.user_renamed) {
+        project.name = stored.name;
+        project.userRenamed = true;
+      }
+    } else {
+      project.id = uniquePersistedId(originalId, usedIds);
+      usedIds.add(project.id);
+      byRoot.set(rootKey(project.rootPath), { id: project.id, root_path: project.rootPath });
+    }
+    aliases.set(originalId, project.id);
+  }
+
+  const remapId = (id) => aliases.get(id) ?? id;
+  for (const session of ctx.sessions) session.projectId = remapId(session.projectId);
+  ctx.gitByProject = remapGrouped(ctx.gitByProject, remapId);
+  ctx.sessionsByProject = remapGrouped(ctx.sessionsByProject, remapId);
+  ctx.filesByProject = remapGrouped(ctx.filesByProject, remapId);
+  ctx.shellByProject = remapGrouped(ctx.shellByProject, remapId);
+  const projectIdForFile = ctx.projectIdForFile;
+  const projectIdForShell = ctx.projectIdForShell;
+  ctx.projectIdForFile = (filePath) => remapId(projectIdForFile(filePath));
+  ctx.projectIdForShell = (command) => remapId(projectIdForShell(command));
+}
+
+function persistProjects(db, ctx, nowIso) {
+  reconcileProjectIds(db, ctx);
   const stmt = db.prepare(
     `INSERT INTO projects (id, name, root_path, user_renamed, created_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET name = excluded.name, root_path = excluded.root_path`,
+     ON CONFLICT (root_path) DO UPDATE SET
+       name = CASE WHEN projects.user_renamed = 1 THEN projects.name ELSE excluded.name END,
+       user_renamed = MAX(projects.user_renamed, excluded.user_renamed)`,
   );
-  for (const p of projects) stmt.run(p.id, p.name, p.rootPath, p.userRenamed ? 1 : 0, nowIso);
+  for (const p of ctx.projects) stmt.run(p.id, p.name, p.rootPath, p.userRenamed ? 1 : 0, nowIso);
 }
 
 function persistCommits(db, result, projectId) {
@@ -337,9 +410,9 @@ export function applySelection(modules, overrides, excludeProjects, projects) {
  */
 export function buildDay(cfg, range, flags, db, opts = {}) {
   const ctx = opts.ctx ?? collectAll(cfg, range, flags);
+  persistProjects(db, ctx, ctx.nowIso);
   const { nowIso, sessions, fileScan, projects, gitByProject, sessionsByProject, filesByProject, shellByProject, projectIdForFile, projectIdForShell, web, shell } = ctx;
 
-  persistProjects(db, projects, nowIso);
   const evidenceIndex = new Map();
   for (const [pid, results] of gitByProject) {
     for (const r of results) {
