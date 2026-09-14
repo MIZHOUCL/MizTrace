@@ -70,7 +70,8 @@ export function findRepos(roots, maxDepth = 4) {
     }
     if (entries.some((e) => e.name === '.git')) {
       found.add(dir);
-      return; // 不进入子仓库，避免重复统计
+      // 父仓库里可能还放着多个独立项目；继续向下找，按仓库分别归组。
+      // 父仓库不会把子仓库内部文件当成自己的普通改动，因此不会重复统计。
     }
     for (const e of entries) {
       if (!e.isDirectory() || SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue;
@@ -79,6 +80,27 @@ export function findRepos(roots, maxDepth = 4) {
   };
   for (const r of roots) walk(path.resolve(r), 0);
   return [...found].sort();
+}
+
+/**
+ * 父仓库的 status 可能把嵌套仓库整体报成 `?? child/`；这些状态由子仓库自己负责。
+ * @param {string} repo
+ * @param {{path:string}[]} dirty
+ * @param {string[]} repos
+ */
+export function filterNestedRepoStatus(repo, dirty, repos) {
+  const parent = path.resolve(repo);
+  const nested = repos
+    .map((r) => path.resolve(r))
+    .filter((r) => r !== parent && r.startsWith(`${parent}${path.sep}`));
+  if (!nested.length) return dirty;
+  return dirty.filter((entry) => {
+    // 只过滤父仓库把未跟踪的嵌套仓库报成 `?? child/` 的情况。
+    // 已跟踪文件或 submodule 指针的变化仍属于父仓库证据，不能丢掉。
+    if (entry.status !== '??') return true;
+    const absolute = path.resolve(parent, entry.path);
+    return !nested.some((r) => absolute === r || absolute.startsWith(`${r}${path.sep}`));
+  });
 }
 
 /** 找出包含某路径的仓库根（用于按会话 cwd 反查）。 */
@@ -226,4 +248,3 @@ export function parseStatus(raw, repo) {
   }
   return out;
 }
-
