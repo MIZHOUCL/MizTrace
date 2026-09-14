@@ -226,3 +226,23 @@ export function projectDirOf(filePath, roots) {
   // 文件直接躺在 root 里，就把 root 本身当项目
   return rel.includes(path.sep) ? path.join(best, first) : best;
 }
+
+/**
+ * 从绝对文件路径向上寻找一个可识别的项目根。
+ * 用于 AI 工具把实际修改文件写成绝对路径、但会话 cwd 在另一个工作目录的情况。
+ */
+export function projectRootOf(filePath, maxDepth = 8) {
+  if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) return null;
+  let dir = path.resolve(path.dirname(filePath));
+  for (let i = 0; i <= maxDepth; i += 1) {
+    try {
+      if (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'package.json')) || fs.existsSync(path.join(dir, 'pyproject.toml')) || fs.existsSync(path.join(dir, 'Cargo.toml'))) return dir;
+    } catch {
+      /* ignore inaccessible paths */
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
