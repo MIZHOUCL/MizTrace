@@ -10,7 +10,7 @@ import { todayLocalDate } from './time.js';
 import { upsertEvidence, getDayState } from './db.js';
 import { findRepos, collectRepo, filterNestedRepoStatus, gitAvailable, repoOf } from './collect/git.js';
 import { collectSessions } from './collect/sessions.js';
-import { scanFiles, projectDirOf } from './collect/files.js';
+import { scanFiles, projectDirOf, projectRootOf } from './collect/files.js';
 import { readOutline, supportsOutline } from './collect/outline.js';
 import { collectBrowser } from './collect/browser.js';
 import { collectShell, shellLogPath } from './collect/shell.js';
@@ -105,13 +105,35 @@ export function collectAll(cfg, range, flags) {
 
   // 终端命令所在的目录也算项目候选：在 D:\wecom 里敲了一下午命令，它就该是一条道
   const shellDirs = [...new Set(shell.commands.map((c) => c.cwd).filter((d) => d && path.isAbsolute(d)))];
+  const actionDirs = sessions.flatMap((s) => {
+    s.actionProjectRoots = [...new Set((s.actions ?? []).filter((a) => a.kind === 'file').map((a) => projectRootOf(a.value)).filter(Boolean))];
+    return s.actionProjectRoots;
+  });
   const projects = buildProjects(repos, sessions, {
     rules: cfg.rules,
-    extraDirs: [...new Set([...fileScan.hits.map((h) => projectDirOf(h.path, cfg.roots)), ...shellDirs.map((d) => repoOf(d) || projectDirOf(d, cfg.roots))])],
+    projectRules: cfg.projectRules,
+    extraDirs: [...new Set([...fileScan.hits.map((h) => projectDirOf(h.path, cfg.roots)), ...shellDirs.map((d) => repoOf(d) || projectDirOf(d, cfg.roots)), ...actionDirs])],
   });
 
   const gitByProject = new Map();
   const resolveProject = makeResolver(projects);
+  const routeForPath = (repo, relativePath) => resolveProject(path.join(repo, relativePath));
+  const routeGitResult = (repo, result) => {
+    const parentId = resolveProject(repo) ?? projectIdOf(repo);
+    const buckets = new Map([[parentId, { ...result, commits: [], dirty: [], arrival: result.arrival }]]);
+    for (const c of result.commits) {
+      const ids = [...new Set(c.files.map((f) => routeForPath(repo, f)).filter((id) => id && id !== parentId))];
+      const id = ids.length === 1 ? ids[0] : parentId;
+      if (!buckets.has(id)) buckets.set(id, { ...result, commits: [], dirty: [], arrival: null });
+      buckets.get(id).commits.push(c);
+    }
+    for (const d of result.dirty) {
+      const id = routeForPath(repo, d.path) ?? parentId;
+      if (!buckets.has(id)) buckets.set(id, { ...result, commits: [], dirty: [], arrival: null });
+      buckets.get(id).dirty.push(d);
+    }
+    return [...buckets.values()].filter((r) => r.commits.length || r.dirty.length || r.arrival);
+  };
   const isToday = range.localDate === todayLocalDate(cfg.cutoffHour);
   const gitWarnings = [];
   let outlineBudget = MAX_OUTLINE_READS - outlineStats.read;
@@ -127,10 +149,11 @@ export function collectAll(cfg, range, flags) {
       outlineStats.read += st.read;
       outlineStats.found += st.found;
     }
-    const id = resolveProject(repo) ?? projectIdOf(repo);
-    if (!result.commits.length && !result.dirty.length && !result.arrival) continue;
-    if (!gitByProject.has(id)) gitByProject.set(id, []);
-    gitByProject.get(id).push(result);
+    for (const routed of routeGitResult(repo, result)) {
+      const id = resolveProject(routed.repo) ?? projectIdOf(routed.repo);
+      if (!gitByProject.has(id)) gitByProject.set(id, []);
+      gitByProject.get(id).push(routed);
+    }
   }
   if (gitWarnings.length && !flags.json) {
     process.stderr.write(`git 采集有 ${gitWarnings.length} 处失败（证据可能不完整）：\n${gitWarnings.slice(0, 5).map((w) => `  ${w}`).join('\n')}\n\n`);
@@ -138,7 +161,8 @@ export function collectAll(cfg, range, flags) {
 
   const sessionsByProject = new Map();
   for (const s of sessions) {
-    let pid = attributeSession(s, projects) ?? resolveProject(s.cwd);
+    const actionPid = (s.actions ?? []).map((a) => (a.kind === 'file' ? resolveProject(a.value) : null)).find(Boolean);
+    let pid = attributeSession(s, projects) ?? actionPid ?? resolveProject(s.cwd);
     if (!pid) {
       const owner = repoOf(s.cwd) || s.cwd;
       pid = resolveProject(owner) ?? projectIdOf(owner);
