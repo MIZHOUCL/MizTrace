@@ -348,21 +348,22 @@ function showEvidence(sid, flags) {
     const i = sid.indexOf(':');
     const type = i < 0 ? null : sid.slice(0, i);
     const ref = i < 0 ? sid : sid.slice(i + 1);
-    const rows = type
-      ? db.prepare('SELECT * FROM evidence WHERE source_type = ? AND source_ref LIKE ? ORDER BY occurred_at').all(type, `${ref}%`)
-      : db.prepare('SELECT * FROM evidence WHERE source_ref LIKE ? ORDER BY occurred_at').all(`${ref}%`);
+    const rows = (type
+      ? db.prepare('SELECT * FROM evidence WHERE source_type = ? ORDER BY occurred_at').all(type)
+      : db.prepare('SELECT * FROM evidence ORDER BY occurred_at').all()
+    ).filter((r) => r.source_ref.startsWith(ref));
     if (!rows.length) {
-      process.stderr.write(`未找到证据：${sid}\n`);
+      process.stderr.write('未找到证据：' + sid + '\n');
       return 1;
     }
     if (flags.json) {
-      process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
+      process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
       return 0;
     }
     for (const r of rows) {
       process.stdout.write(
-        `${r.source_type}:${r.source_ref}\n  项目 ${r.project_id ?? '-'}｜级别 ${r.level}｜发生于 ${r.occurred_at}｜归属日 ${r.local_date}\n` +
-          `  ${r.path ? `路径 ${r.path}\n  ` : ''}${r.excerpt ?? ''}\n\n`,
+        r.source_type + ':' + r.source_ref + '\n  项目 ' + (r.project_id ?? '-') + '｜级别 ' + r.level + '｜发生于 ' + r.occurred_at + '｜归属日 ' + r.local_date + '\n' +
+          '  ' + (r.path ? '路径 ' + r.path + '\n  ' : '') + (r.excerpt ?? '') + '\n\n',
       );
     }
     return 0;
