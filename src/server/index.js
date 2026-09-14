@@ -188,6 +188,12 @@ export function applyConfigPatch(cfg, body) {
   if (Number.isInteger(body.cutoffHour) && body.cutoffHour >= 0 && body.cutoffHour <= 23) cfg.cutoffHour = body.cutoffHour;
   const excluded = lines(body.excludeProjects);
   if (excluded) cfg.excludeProjects = excluded;
+  if (Array.isArray(body.projectRules)) {
+    cfg.projectRules = body.projectRules
+      .filter((r) => r && typeof r === 'object' && typeof r.repo === 'string' && typeof r.path === 'string' && typeof r.project === 'string')
+      .map((r) => ({ repo: path.resolve(r.repo), path: r.path.replace(/^[/\\]+|[/\\]+$/g, ''), project: r.project.trim() }))
+      .filter((r) => r.path && r.project);
+  }
   if (typeof body.authorFilter === 'string') cfg.authorFilter = body.authorFilter.trim() || null;
   if (body.fileScan && typeof body.fileScan === 'object') {
     cfg.fileScan = { ...cfg.fileScan };
