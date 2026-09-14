@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { openDb, upsertEvidence } from '../src/db.js';
+import { dbPath } from '../src/config.js';
 
 const BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'miztrace.js');
 
@@ -36,6 +38,31 @@ test('CLI：today 与 week 落到不同文件，week 不覆盖当天日记；重
     run(['today', '--root', root, '--out', out, '--no-files']);
     assert.equal(fs.readdirSync(out).filter((f) => f.endsWith('.bak')).length, 0, '内容未变，不该多出备份');
   } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('CLI：show 不把 source_ref 中的 % / _ 当通配符，过滤仍在 SQL 层完成', () => {
+  const { base, run } = sandbox();
+  const prevDataDir = process.env.MIZTRACE_DATA_DIR;
+  process.env.MIZTRACE_DATA_DIR = path.join(base, 'data');
+  try {
+    const db = openDb(dbPath());
+    upsertEvidence(db, { source_type: 'commit', source_ref: 'a9c7471', occurred_at: '2026-01-01T00:00:00.000Z', local_date: '2026-01-01', excerpt: 'target' });
+    upsertEvidence(db, { source_type: 'commit', source_ref: 'a9c7471-child', occurred_at: '2026-01-01T00:00:01.000Z', local_date: '2026-01-01', excerpt: 'prefix match' });
+    upsertEvidence(db, { source_type: 'commit', source_ref: 'a%b', occurred_at: '2026-01-01T00:00:02.000Z', local_date: '2026-01-01', excerpt: 'literal percent in ref' });
+    db.close();
+
+    const rows = JSON.parse(run(['show', 'commit:a9c7471', '--json']));
+    assert.equal(rows.length, 2, `实际：${JSON.stringify(rows)}`);
+    assert.ok(rows.every((r) => r.source_ref.startsWith('a9c7471')));
+
+    // ref 里的 % 若被当通配符，"a%" 会匹配所有以 a 开头的 ref（3 条）；正确行为下只字面匹配 "a%b"（1 条）。
+    const wildcardRows = JSON.parse(run(['show', 'commit:a%', '--json']));
+    assert.equal(wildcardRows.length, 1, `实际：${JSON.stringify(wildcardRows)}`);
+    assert.equal(wildcardRows[0].source_ref, 'a%b');
+  } finally {
+    process.env.MIZTRACE_DATA_DIR = prevDataDir;
     fs.rmSync(base, { recursive: true, force: true });
   }
 });

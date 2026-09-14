@@ -338,6 +338,10 @@ async function runUi(cfg, flags) {
   return 0;
 }
 
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 function showEvidence(sid, flags) {
   if (!sid) {
     process.stderr.write('用法：miztrace show <source_id>，如 commit:a9c7471 或 session:<sid>#42\n');
@@ -348,10 +352,10 @@ function showEvidence(sid, flags) {
     const i = sid.indexOf(':');
     const type = i < 0 ? null : sid.slice(0, i);
     const ref = i < 0 ? sid : sid.slice(i + 1);
-    const rows = (type
-      ? db.prepare('SELECT * FROM evidence WHERE source_type = ? ORDER BY occurred_at').all(type)
-      : db.prepare('SELECT * FROM evidence ORDER BY occurred_at').all()
-    ).filter((r) => r.source_ref.startsWith(ref));
+    const pattern = `${escapeLikePattern(ref)}%`;
+    const rows = type
+      ? db.prepare("SELECT * FROM evidence WHERE source_type = ? AND source_ref LIKE ? ESCAPE '\\' ORDER BY occurred_at").all(type, pattern)
+      : db.prepare("SELECT * FROM evidence WHERE source_ref LIKE ? ESCAPE '\\' ORDER BY occurred_at").all(pattern);
     if (!rows.length) {
       process.stderr.write('未找到证据：' + sid + '\n');
       return 1;
