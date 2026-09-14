@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scanFiles, isSensitiveName, insideRepo, projectDirOf, isWorkLike, extensionOf } from '../src/collect/files.js';
+import { scanFiles, isSensitiveName, insideRepo, projectDirOf, projectRootOf, isWorkLike, extensionOf } from '../src/collect/files.js';
 import { dayRange, ymd } from '../src/time.js';
 
 // 用本地日期而不是 toISOString().slice(0,10)：后者是 UTC 日期，
@@ -107,6 +107,17 @@ test('projectDirOf 取 root 下第一层目录作为项目', () => {
   // 不在任何 root 下时退回文件所在目录
   const outside = path.resolve(path.join(os.tmpdir(), 'dt-other', 'x'));
   assert.equal(projectDirOf(path.join(outside, 'y.ts'), roots), outside);
+});
+
+test('projectRootOf 能从 AI 修改文件路径找回实际项目根', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-project-root-'));
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'package.json'), '{}');
+  const file = path.join(root, 'src', 'index.js');
+  fs.writeFileSync(file, '');
+  assert.equal(projectRootOf(file), root);
+  assert.equal(projectRootOf(path.join(root, 'missing', 'file.js')), root, '文件尚未落盘时仍可按父目录识别');
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('工作产物白名单：代码/文档/数据留下，应用状态与安装包过滤掉', () => {
