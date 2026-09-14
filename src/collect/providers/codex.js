@@ -48,10 +48,31 @@ const NOISE_PREFIX = [
   '<permissions',
 ];
 
+/**
+ * 桌面版把「附件 / 图片 / 选区注释」整套包进模板里（`# Files mentioned by the user:`、
+ * `# Response annotations:`），模板本身不是用户打的字，但它里面的 `## My request:` 一节
+ * 恰恰就是原话（旧版 CLI 叫 `## My request for Codex:`）。必须先把这一段取出来再判噪音，
+ * 否则模板一开头就整体命中 NOISE_PREFIX，会话的第一条提问会被整条丢掉
+ * （2026-09-14 用实机 rollout 核对过）。这些模板的其它部分（文件清单、说明文字、
+ * `<response-annotations>` 里的引用原文）都要丢掉。
+ */
+const WRAPPER_PREFIX = ['# Files mentioned by the user', '# Response annotations', '## My request:', '## My request for Codex'];
+const REQUEST_HEADING = /^#{1,3}[ \t]*My request(?: for Codex)?[ \t]*:?[ \t]*$/im;
+
+/** 图片占位块 `<image name=[Image #1] path="…">…</image>` 是模板的一部分，不是用户打的字。 */
+function stripImagePlaceholders(text) {
+  return text.replace(/<image\b[^>]*>[\s\S]*?<\/image>/gi, ' ').replace(/<\/?image\b[^>]*>/gi, ' ');
+}
+
 export function cleanPrompt(text) {
   if (typeof text !== 'string') return null;
-  const raw = text.trim();
+  const raw = stripImagePlaceholders(text).trim();
   if (!raw) return null;
+  // 模板：只留 `## My request:` 之后的正文；模板里没有 request 段就是纯附件，整条不算提问
+  if (WRAPPER_PREFIX.some((p) => raw.startsWith(p))) {
+    const m = REQUEST_HEADING.exec(raw);
+    return m ? cleanPrompt(raw.slice(m.index + m[0].length)) : null;
+  }
   if (NOISE_PREFIX.some((p) => raw.startsWith(p))) return null;
   // 整条内容就是一个 XML 块 => 注入内容
   if (/^<[a-z_]+>[\s\S]*<\/[a-z_]+>$/i.test(raw)) return null;
