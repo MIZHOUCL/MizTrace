@@ -198,6 +198,37 @@ test('codex: 桌面版附件包装中保留 My request，丢掉图片占位块',
     '</image>',
   ].join('\n');
   assert.equal(codex.cleanPrompt(wrapped), '帮我看看这个项目，为什么没有记录第一条提问？');
+  // 实机 rollout 里图片占位块是独立的 content 块，join 之后长这样
+  assert.equal(
+    codex.extractPrompt({
+      role: 'user',
+      content: [
+        { type: 'input_text', text: `${wrapped}\n` },
+        { type: 'input_text', text: '<image name=[Image #1] path="C:/tmp/screenshot.png">' },
+        { type: 'input_image', image_url: 'data:image/png;base64,AAAA' },
+        { type: 'input_text', text: '</image>' },
+      ],
+    }),
+    '帮我看看这个项目，为什么没有记录第一条提问？',
+  );
+  // 只有文件清单、没有 My request 段 => 纯附件，整条不算提问
+  assert.equal(codex.cleanPrompt('# Files mentioned by the user:\n\n## a.png: C:/a.png\n\n## My request for Codex:\n'), null);
+});
+
+test('codex: 桌面版选区注释包装同样只留 My request', () => {
+  const annotated = [
+    '# Response annotations:',
+    'Each item contains text selected from an earlier Codex response.',
+    '<response-annotations>',
+    '[{"text":"更稳妥的方案是……","source":{"messageId":"m1"}}]',
+    '</response-annotations>',
+    '',
+    '## My request:',
+    '这个的话怎么改呢？',
+  ].join('\n');
+  assert.equal(codex.cleanPrompt(annotated), '这个的话怎么改呢？');
+  // 旧版 CLI 的 heading 也不能整条被当噪音丢掉
+  assert.equal(codex.cleanPrompt('## My request for Codex:\n把扫描器改成惰性求值'), '把扫描器改成惰性求值');
 });
 
 test('displayName：太短或纯数字的目录名带上父目录', async () => {
