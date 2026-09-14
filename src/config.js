@@ -146,6 +146,8 @@ export const DEFAULTS = {
   },
   /** 永久排除的项目：rootPath 子串或项目名。前端「永久排除」写到这里。 */
   excludeProjects: [],
+  /** monorepo 子项目规则：{ repo, path, project }。未命中的内容仍归父仓库。 */
+  projectRules: [],
   /**
    * AI 写作。填齐 baseUrl / apiKey / model 即可用，没有单独的开关 —— 每次发送前都有确认弹窗。
    * protocol: 'auto' | 'openai' | 'anthropic'。auto 按 URL 里是否含 anthropic 判断。
@@ -294,6 +296,11 @@ export function loadConfig() {
   if (!Array.isArray(cfg.ai.templates)) cfg.ai.templates = [];
   cfg.ui = { ...DEFAULTS.ui, ...(onDisk.ui || {}) };
   if (!Array.isArray(cfg.excludeProjects)) cfg.excludeProjects = [];
+  if (!Array.isArray(cfg.projectRules)) cfg.projectRules = [];
+  cfg.projectRules = cfg.projectRules
+    .filter((r) => r && typeof r === 'object' && typeof r.repo === 'string' && typeof r.path === 'string' && typeof r.project === 'string')
+    .map((r) => ({ repo: path.resolve(r.repo), path: r.path.replace(/^[/\\]+|[/\\]+$/g, ''), project: r.project.trim() }))
+    .filter((r) => r.repo && r.path && r.project);
   if (!Number.isInteger(cfg.gapMinutes) || cfg.gapMinutes < 5) cfg.gapMinutes = DEFAULTS.gapMinutes;
   // 记住 roots 是用户配的还是退回到了 cwd：网页要据此决定要不要弹首次引导
   cfg.rootsConfigured = Array.isArray(onDisk.roots) && onDisk.roots.length > 0;
