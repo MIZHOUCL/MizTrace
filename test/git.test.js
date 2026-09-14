@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { collectRepo, gitAvailable, MAX_DIRTY, repoArrival, cleanRemote } from '../src/collect/git.js';
+import { collectRepo, filterNestedRepoStatus, findRepos, gitAvailable, MAX_DIRTY, repoArrival, cleanRemote } from '../src/collect/git.js';
 import { dayRange, ymd } from '../src/time.js';
 
 const RANGE = dayRange(ymd(new Date()), 0);
@@ -18,6 +18,26 @@ function mkrepo() {
   g('config', 'commit.gpgsign', 'false');
   return { dir, g };
 }
+
+test('扫描根目录时保留父仓库下的嵌套仓库', { skip: !gitAvailable() }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-git-tree-'));
+  const parent = path.join(root, 'workspace');
+  const childA = path.join(parent, 'app-a');
+  const childB = path.join(parent, 'app-b');
+  fs.mkdirSync(childA, { recursive: true });
+  fs.mkdirSync(childB, { recursive: true });
+  for (const dir of [parent, childA, childB]) {
+    const g = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    g('init', '-q');
+  }
+
+  assert.deepEqual(findRepos([root]), [parent, childA, childB].sort());
+  assert.deepEqual(
+    filterNestedRepoStatus(parent, [{ status: '??', path: 'app-a/' }, { status: 'M', path: 'app-b' }, { status: 'M', path: 'README.md' }], [parent, childA, childB]),
+    [{ status: 'M', path: 'app-b' }, { status: 'M', path: 'README.md' }],
+  );
+  fs.rmSync(root, { recursive: true, force: true });
+});
 
 test('未提交改动：今天碰过的才算，放了几天的不算', { skip: !gitAvailable() }, () => {
   const { dir, g } = mkrepo();
