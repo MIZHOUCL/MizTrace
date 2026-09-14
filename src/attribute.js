@@ -48,9 +48,24 @@ export function buildProjects(repos, sessions, opts = {}) {
     return entry;
   };
   for (const r of repos) add(r);
+  // 显式 monorepo 规则建立虚拟子项目根；没有规则的仓库仍保持一个项目。
+  for (const rule of opts.projectRules ?? []) {
+    if (!rule || typeof rule.repo !== 'string' || typeof rule.path !== 'string' || typeof rule.project !== 'string') continue;
+    const repoRoot = path.resolve(rule.repo);
+    if (!repos.some((r) => path.resolve(r) === repoRoot)) continue;
+    const subRoot = path.resolve(repoRoot, rule.path);
+    const p = add(subRoot);
+    p.name = rule.project.trim() || p.name;
+    p.id = projectIdOf(`${repoRoot}/${rule.path}`);
+    p.userRenamed = true;
+  }
   // 会话 cwd 若不在已知仓库内，自己也算一个项目
   for (const s of sessions) {
     if (!s.cwd || s.cwd === '.') continue;
+    // Codex 多文件夹工作区可能把 cwd 记成工作区容器目录；若实际修改文件已明确落在别的项目，
+    // 不要再把这个容器目录伪装成一个项目。
+    const actionRoots = (s.actionProjectRoots ?? []).map((r) => path.resolve(r));
+    if (actionRoots.length && !actionRoots.includes(path.resolve(s.cwd))) continue;
     const owner = repoContaining(s.cwd, [...byRoot.keys()]);
     if (!owner) add(s.cwd);
   }
