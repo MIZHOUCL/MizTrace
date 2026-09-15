@@ -1,0 +1,25 @@
+# 依赖（本项目零依赖，这里只是防止误提交）
+node_modules/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# 日志
+*.log
+npm-debug.log*
+
+# miztrace 自己的产出：本地数据库与备份文件，绝不入库
+*.db
+*.db-wal
+*.db-shm
+*.md.*.bak
+config.json
+out/
+
+# 本地 AI 工具的会话与设置目录
+.claude/
+.codex/

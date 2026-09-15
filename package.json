@@ -1,0 +1,32 @@
+{
+  "name": "miztrace",
+  "version": "0.3.0-dev",
+  "description": "MizTrace（密迹）：把今天真实发生过的工作痕迹，整理成一份每一句话都能点回证据的日记",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "miztrace": "bin/miztrace.js",
+    "daytrace": "bin/miztrace.js"
+  },
+  "engines": {
+    "node": ">=22.13.0 <23.0.0 || >=23.4.0"
+  },
+  "scripts": {
+    "test": "node --import ./scripts/pin-timezone.mjs --test --test-reporter=spec --test-reporter-destination=stdout",
+    "smoke": "node bin/miztrace.js today --dry-run",
+    "ui": "node bin/miztrace.js ui"
+  },
+  "files": [
+    "bin",
+    "src",
+    "web",
+    "README.md"
+  ],
+  "keywords": [
+    "worklog",
+    "journal",
+    "git",
+    "local-first"
+  ],
+  "dependencies": {}
+}
