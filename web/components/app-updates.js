@@ -5,7 +5,7 @@ export const AppUpdates = {
   setup() {
     const L = (zh, en) => lang.value === 'en' ? en : zh;
     const bridge = window.miztraceDesktop?.updates, state = ref(null), visible = ref(false), localError = ref('');
-    let unsubscribe, announced = '';
+    let unsubscribe, unsubscribeOpen, announced = '';
     function receive(value) {
       state.value = value;
       if (value.phase === 'available' && value.release?.version !== announced) { visible.value = true; announced = value.release.version; }
@@ -28,12 +28,11 @@ export const AppUpdates = {
       installing: L('正在关闭并安装更新…', 'Restarting to install the update…'),
       error: L('暂时无法完成更新', 'Unable to complete the update'),
     })[state.value?.phase] || '');
-    onMounted(() => { if (bridge) { unsubscribe = bridge.onState(receive); action('state'); } });
-    onBeforeUnmount(() => unsubscribe?.());
-    return { L, enabled: Boolean(bridge), state, visible, localError, busy, notes, date, status, open, action };
+    onMounted(() => { if (bridge) { unsubscribe = bridge.onState(receive); unsubscribeOpen = bridge.onOpen(open); action('state'); } });
+    onBeforeUnmount(() => { unsubscribe?.(); unsubscribeOpen?.(); });
+    return { L, state, visible, localError, busy, notes, date, status, action };
   },
   template: `
-  <button v-if="enabled" class="btn app-update-trigger" @click="open">{{ state?.release ? L('发现更新', 'Update available') : L('检查更新', 'Check updates') }}<i v-if="state?.release" class="update-dot"></i></button>
   <teleport to="body">
   <div v-if="visible && state" class="overlay update-overlay" @click.self="state.phase !== 'installing' && (visible=false)" role="dialog" aria-modal="true" aria-labelledby="update-title">
     <div class="modal update-modal">

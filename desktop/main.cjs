@@ -69,7 +69,8 @@ async function launch() {
     return '当前平台暂不支持应用内安装更新。';
   };
   const updater = createUpdater({ autoUpdater, version: app.getVersion(), platform: process.platform, arch: process.arch,
-    fetchImpl: (...args) => net.fetch(...args), preferencesFile: path.join(app.getPath('userData'), 'updates.json'), managed, supportError,
+    fetchImpl: smoke ? async () => ({ ok: true, text: async () => JSON.stringify({ tag_name: `v${app.getVersion()}` }) }) : (...args) => net.fetch(...args),
+    preferencesFile: path.join(app.getPath('userData'), 'updates.json'), managed, supportError,
     notify: (state) => { if (!mainWindow.isDestroyed()) mainWindow.webContents.send('miztrace:update-state', state); },
     restart: async (starting) => {
       const blocked = await mainWindow.webContents.executeJavaScript(`!window.dispatchEvent(new Event('miztrace-before-update', {cancelable:true}))`);
@@ -120,8 +121,14 @@ async function launch() {
     { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: '视图', submenu: [{ role: 'reload' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
     { label: '窗口', submenu: [{ role: 'minimize' }, { role: 'close' }] },
+    { label: '更新', submenu: [{ id: 'check-for-updates', label: '检查更新…', enabled: false, click: () => {
+      if (mainWindow.isDestroyed()) return;
+      if (!smoke) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); }
+      mainWindow.webContents.send('miztrace:update-open');
+    } }] },
   ]));
   await mainWindow.loadURL(ready.url);
+  Menu.getApplicationMenu().getMenuItemById('check-for-updates').enabled = true;
   if (!smoke && app.isPackaged && updater.snapshot().autoCheck && !managed()) {
     // Squirrel 首次安装仍持有锁，给它留出释放时间。
     const timer = setTimeout(() => { if (!mainWindow.isDestroyed() && updater.snapshot().autoCheck) updater.check(); }, process.argv.includes('--squirrel-firstrun') ? 20_000 : 8000);
@@ -133,9 +140,13 @@ async function launch() {
     const bridge = await mainWindow.webContents.executeJavaScript(`(async () => {
       if (typeof window.miztraceDesktop?.chooseDirectories !== 'function') return false;
       const update = await window.miztraceDesktop.updates.state();
-      return update.current === '${app.getVersion()}' && update.phase === 'idle' && document.querySelector('.app-update-trigger') !== null;
+      return update.current === '${app.getVersion()}' && update.phase === 'idle' && typeof window.miztraceDesktop.updates.onOpen === 'function' && document.querySelector('.app-update-trigger') === null;
     })()`);
     if (!bridge) throw new Error('桌面更新与目录选择桥接未加载');
+    const updateMenu = Menu.getApplicationMenu().getMenuItemById('check-for-updates');
+    if (!updateMenu?.enabled) throw new Error('更新菜单不可用');
+    updateMenu.click();
+    const updateDialog = await mainWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => { const deadline = Date.now() + 5000; const check = () => { const title = document.querySelector('#update-title'); if (document.querySelector('.update-overlay') && /最新正式版本|latest stable release/.test(title?.textContent || '')) resolve(true); else if (Date.now() > deadline) reject(new Error('更新菜单未打开检查结果')); else setTimeout(check, 100); }; check(); })`);
     const saved = await mainWindow.webContents.executeJavaScript(`(async () => {
       const headers = {'content-type':'application/json', 'x-miztrace-token': sessionStorage.getItem('dt_token')};
       const create = await fetch('/api/journals', {method:'POST', headers, body:JSON.stringify({date:'2026-11-27'})});
@@ -144,7 +155,7 @@ async function launch() {
       return save.ok && (await save.json()).markdown === '# Desktop smoke';
     })()`);
     if (!saved) throw new Error('桌面日记保存失败');
-    if (process.env.MIZTRACE_DESKTOP_SMOKE_OUTPUT) fs.writeFileSync(process.env.MIZTRACE_DESKTOP_SMOKE_OUTPUT, JSON.stringify({ ok: true, sqlite: ready.sqlite, saved, bridge, node: ready.nodeVersion, platform: process.platform, arch: process.arch }));
+    if (process.env.MIZTRACE_DESKTOP_SMOKE_OUTPUT) fs.writeFileSync(process.env.MIZTRACE_DESKTOP_SMOKE_OUTPUT, JSON.stringify({ ok: true, sqlite: ready.sqlite, saved, bridge, updateDialog, node: ready.nodeVersion, platform: process.platform, arch: process.arch }));
     app.quit();
   }
 }

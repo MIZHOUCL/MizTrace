@@ -616,7 +616,6 @@ pre.snippet { background: #16202e; color: #d7dbe2; padding: 10px 12px; border-ra
 .library-roots { list-style:none; padding:0; max-height:280px; overflow:auto; }
 .library-roots li { display:flex; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
 .library-roots code { flex:1; overflow-wrap:anywhere; font-size:12px; }
-.update-dot { width:7px; height:7px; border-radius:50%; background:var(--accent,#71835b); display:inline-block; margin-left:6px; }
 .update-overlay { z-index:160; }
 .update-modal { width:min(620px,calc(100vw - 32px)); }
 .update-notes { max-height:42vh; overflow:auto; padding:18px; background:#f7f8f4; border:1px solid var(--line); border-radius:8px; margin:18px 0; }

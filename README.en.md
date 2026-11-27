@@ -21,6 +21,8 @@ Download the **latest stable release** using these permanent links. Successful s
 
 Individual use is free, including independently writing your own work journals and reports. Organization-wide deployments, shared systems and commercial services require a paid license; see [LICENSE](./LICENSE).
 
+Open **更新 → 检查更新…** (Updates → Check for updates) in the desktop menu bar beside Edit, View and Window. The update button no longer takes up space in the page toolbar.
+
 Weekly and monthly reports validate quotes and numeric claims, with equivalent numeric formats normalized. A failed claim no longer discards every valid fact: incomplete results are clearly labeled for review with diagnostic details and the original sources. If no AI facts can be used, an editable source draft is saved. Failed validation and retries count toward usage limits.
 
 The sidebar now includes Today and Journal library, with a collapse button that remembers your preference. Browse saved entries, generated drafts and UTF-8 Markdown files from your diary folder; search titles, dates and filenames; edit and preview Markdown; save previous versions or export `.md` files. New entries work without AI setup or an output folder. Source editing supports `Ctrl/Cmd+S`, bold/italic shortcuts and undo/redo. External file changes trigger a conflict message without overwriting your edits.
