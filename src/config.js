@@ -187,6 +187,7 @@ export const DEFAULTS = {
     /** 用户改过或新加的模板 [{id,name,text}]；跟内置一样的不存。 */
     templates: [],
   },
+  journalLibrary: { roots: [] },
   ui: { port: 0 },
 };
 
@@ -321,6 +322,8 @@ export function loadConfig() {
   cfg.svn = { ...DEFAULTS.svn, ...(onDisk.svn || {}) };
   if (!Array.isArray(cfg.ai.templates)) cfg.ai.templates = [];
   cfg.ui = { ...DEFAULTS.ui, ...(onDisk.ui || {}) };
+  // 日记库目录独立配置。旧导出目录不会自动获得日记库读写授权。
+  cfg.journalLibrary = { roots: Array.isArray(onDisk.journalLibrary?.roots) ? onDisk.journalLibrary.roots.filter((p) => typeof p === 'string') : [] };
   if (!Array.isArray(cfg.excludeProjects)) cfg.excludeProjects = [];
   if (!Array.isArray(cfg.projectRules)) cfg.projectRules = [];
   cfg.projectRules = cfg.projectRules

@@ -138,7 +138,12 @@ export async function chat(cfg, msg, deps = {}) {
       if (err?.name === 'AbortError') throw new Error(`请求超时：模型 ${Math.round(timeoutMs / 1000)} 秒内没有回完（${url}）。可以把「最大输出」调小，或在 config.json 的 ai.timeoutMs 里调大`);
       throw new Error(`连不上模型服务：${scrubSecrets(err?.message ?? String(err))}（${url}）`);
     }
-    ({ json, text } = await readJson(res));
+    try { ({ json, text } = await readJson(res)); }
+    catch (err) {
+      clearTimeout(timer);
+      if (controller.signal.aborted) throw new Error(`模型响应读取超时（${Math.round(timeoutMs / 1000)} 秒），请检查服务网络后重试`);
+      throw err;
+    }
     if (res.ok) break;
     const fixed = proto === 'openai' && attempt < 2 ? compatFix(sent, res.status, text) : null;
     if (!fixed) {
@@ -255,7 +260,7 @@ export function explainBadOutput(result, model, { retriedWith } = {}) {
 export async function testConnection(cfg, deps = {}) {
   try {
     const r = await chat(
-      { ...cfg, maxTokens: 64, timeoutMs: Math.min(cfg.timeoutMs ?? 30_000, 30_000) },
+      { ...cfg, maxTokens: 64, timeoutMs: Math.min(cfg.timeoutMs ?? 15_000, 15_000) },
       { system: '你是一个连通性探针。', user: '只回复：OK' },
       deps,
     );

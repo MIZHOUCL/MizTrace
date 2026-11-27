@@ -7,7 +7,7 @@ import { hhmm, timeRange, statsWords, durationWords, stayWords, catVar, CAT_WORD
 import { t, lang } from '../lib/i18n.js';
 import { TOKEN } from '../lib/api.js';
 
-const { computed, ref, watch } = window.Vue;
+const { computed, ref, watch, onMounted, onBeforeUnmount } = window.Vue;
 
 export const Drawer = {
   name: 'Drawer',
@@ -22,6 +22,9 @@ export const Drawer = {
       },
     );
     const dirty = computed(() => hint.value.trim() !== (props.module?.hint || ''));
+    const guardUpdate = (e) => { if (dirty.value || props.saving) e.preventDefault(); };
+    onMounted(() => window.addEventListener('miztrace-before-update', guardUpdate));
+    onBeforeUnmount(() => window.removeEventListener('miztrace-before-update', guardUpdate));
 
     const timeline = computed(() => {
       const items = props.module?.items ?? [];

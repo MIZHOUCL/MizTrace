@@ -18,6 +18,8 @@ import { collectShell, shellLogPath } from './collect/shell.js';
 import { buildProjects, attributeSession, projectIdOf, makeResolver } from './attribute.js';
 import { evidenceFromGit, evidenceFromSession, evidenceFromFiles, evidenceFromWeb, evidenceFromShell, evidenceFromNotes, sourceId } from './facts.js';
 import { buildModules } from './modules.js';
+import { snapshotJournal } from './journal-history.js';
+import { journalRoot, checkedJournalPath, readJournalFile, replaceJournalFile } from './journal-files.js';
 
 /** 一次运行最多读多少个文档的大纲：够一天的量，又不至于让一个塞满文档的目录拖慢采集。 */
 const MAX_OUTLINE_READS = 300;
@@ -377,6 +379,8 @@ function persistSession(db, s) {
 }
 
 function persistJournal(db, localDate, markdown, nowIso, outPath) {
+  const before = db.prepare('SELECT markdown FROM journals WHERE local_date = ?').get(localDate);
+  if (before && before.markdown !== markdown) snapshotJournal(db, `journal:${localDate}`, before.markdown, 'before-save');
   db.prepare(
     `INSERT INTO journals (id, local_date, markdown, out_path, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)
@@ -392,23 +396,12 @@ function persistJournal(db, localDate, markdown, nowIso, outPath) {
 export function writeOut(cfg, fileStem, markdown, flags) {
   const dir = cfg.out;
   if (!dir) return null;
-  const target = path.join(dir, `${fileStem}.md`);
   fs.mkdirSync(dir, { recursive: true });
+  const target = checkedJournalPath(journalRoot(cfg), `${fileStem}.md`, { missing: true });
   const next = `${markdown}\n`;
-  if (fs.existsSync(target)) {
-    // 内容一字未变就什么都不做：同一天反复运行是常态，不能每跑一次就往日记目录里堆一个 .bak
-    let current = null;
-    try {
-      current = fs.readFileSync(target, 'utf8');
-    } catch {
-      current = null;
-    }
-    if (current === next) return target;
-    // 内容变了才在覆盖前做带时间戳的备份，保住用户手写内容
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    fs.copyFileSync(target, `${target}.${stamp}.bak`);
-  }
-  fs.writeFileSync(target, next, 'utf8');
+  const current = fs.existsSync(target) ? readJournalFile(target) : null;
+  if (current?.markdown === next) return target;
+  replaceJournalFile(target, next, current?.revision ?? null);
   if (!flags.json) process.stderr.write(`已写入 ${target}\n`);
   return target;
 }

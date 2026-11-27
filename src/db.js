@@ -6,8 +6,9 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { dbPath, ensureDataDir } from './config.js';
+import { snapshotJournal } from './journal-history.js';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const MIGRATIONS = [
   {
@@ -123,6 +124,19 @@ const MIGRATIONS = [
     // 图片文件放数据目录 notes/<日期>/ 下，这里只存清单。
     sql: `
       ALTER TABLE day_state ADD COLUMN notes_json TEXT NOT NULL DEFAULT '{}';
+    `,
+  },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE journal_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_id TEXT NOT NULL,
+        markdown TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_journal_revisions_document ON journal_revisions(document_id, id DESC);
     `,
   },
 ];
@@ -330,6 +344,8 @@ export function setHint(db, localDate, key, text) {
 
 /** 保存 AI 草稿（Markdown + 结构化条目）。 */
 export function setDraft(db, localDate, markdown, json) {
+  const before = db.prepare('SELECT draft_md FROM day_state WHERE local_date = ?').get(localDate);
+  if (before?.draft_md != null && before.draft_md !== markdown) snapshotJournal(db, `draft:${localDate}`, before.draft_md, 'before-draft');
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO day_state (local_date, draft_md, draft_json, updated_at) VALUES (?, ?, ?, ?)

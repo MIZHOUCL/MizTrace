@@ -23,6 +23,17 @@ function fakeFetch(handler) {
 }
 
 const KEY = 'sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
+test('模型连接测试的整个响应读取最多等待 15 秒，超时能恢复界面', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const result = testConnection({ baseUrl: 'https://model.example/v1', apiKey: KEY, model: 'test', timeoutMs: 60_000 }, {
+    fetchImpl: async (_url, { signal }) => ({ ok: true, text: () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))) }),
+  });
+  await Promise.resolve();
+  t.mock.timers.tick(15_001);
+  const response = await result;
+  assert.equal(response.ok, false);
+  assert.match(response.error, /超时/);
+});
 
 test('协议自动识别与端点拼接', () => {
   assert.equal(detectProtocol('https://api.anthropic.com'), 'anthropic');

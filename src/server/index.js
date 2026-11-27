@@ -25,19 +25,19 @@ import { journalFromModules, allFacts, renderJournalMarkdown, stripAnnotations }
 import { buildPrompt, writeWithAI, SecretsFoundError, assertOutboundAllowed, disclosure } from '../ai/write.js';
 import { testConnection } from '../ai/provider.js';
 import { scrubSecrets } from '../ai/redact.js';
-import { detectBrowsers } from '../collect/browser.js';
-import { detectShell, installShellHook } from '../collect/shell.js';
+import { installShellHook } from '../collect/shell.js';
 import { templatesOf, pickTemplate, BUILTIN_TEMPLATES } from '../ai/templates.js';
-import { detectProviders } from '../collect/sessions.js';
-import { findWorkingCopies, svnAvailable } from '../collect/svn.js';
-import { candidateRoots } from '../setup.js';
+import { sourceDiscovery } from './source-discovery.js';
+import { normalizeLibraryRoots } from '../journal-roots.js';
+import { listLibraryDocuments, readLibraryDocument, createLibraryDocument, saveLibraryDocument, libraryHistory, journalSaveRevision } from '../journal-library.js';
+import { journalError } from '../journal-files.js';
 
 const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.md': 'text/plain; charset=utf-8', '.woff2': 'font/woff2' };
 const MAX_BODY = 1024 * 1024;
 /** 传图的接口单独放宽：base64 比原图大三分之一。 */
 const MAX_IMAGE_BODY = Math.ceil(MAX_IMAGE_BYTES * 1.4) + 64 * 1024;
-export const VERSION = '0.3.0-dev';
+export const VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
 function send(res, status, body, headers = {}) {
   const isJson = typeof body !== 'string' && !Buffer.isBuffer(body);
@@ -229,6 +229,8 @@ export async function startServer(opts) {
   const db = openDb(opts.dbFile ?? dbPath());
   const flags = { json: true, 'no-files': false };
   let boundPort = 0;
+  const discovery = sourceDiscovery();
+  const sourceSettings = () => ({ templates: templatesOf(cfg), builtinTemplates: BUILTIN_TEMPLATES, template: cfg.ai?.template ?? 'summary' });
 
   /**
    * 采集结果按日期缓存两分钟。之前每个接口各自 buildDay（= 全量采集），用户点一下「生成日记」要等一次全扫，
@@ -247,6 +249,31 @@ export async function startServer(opts) {
   }
 
   const api = {
+    async 'GET /api/journals/directories'() {
+      return { directories: cfg.journalLibrary?.roots ?? [] };
+    },
+    async 'PUT /api/journals/directories'(q, body) {
+      const roots = normalizeLibraryRoots(body.directories);
+      // 先持久化成功，再让正在编辑的文档切换授权范围。
+      saveConfig({ ...cfg, journalLibrary: { roots } });
+      cfg.journalLibrary = { roots };
+      return { directories: roots };
+    },
+    async 'GET /api/journals'() {
+      return listLibraryDocuments(db, cfg);
+    },
+    async 'GET /api/journals/document'(q) {
+      return readLibraryDocument(db, cfg, q.get('id'));
+    },
+    async 'POST /api/journals'(q, body) {
+      return createLibraryDocument(db, cfg, body.date);
+    },
+    async 'PUT /api/journals/document'(q, body) {
+      return saveLibraryDocument(db, cfg, body);
+    },
+    async 'GET /api/journals/history'(q) {
+      return libraryHistory(db, cfg, q.get('id'), q.get('revision'));
+    },
     async 'GET /api/state'() {
       return {
         today: todayLocalDate(cfg.cutoffHour),
@@ -261,29 +288,18 @@ export async function startServer(opts) {
         dataDir: dataDir(),
         configPath: configPath(),
         disclosure: disclosure(cfg),
+        settingsSources: sourceSettings(),
       };
     },
     /** 首次引导与设置页用：本机有什么可读。不解析内容，只做存在性 / 可读性检查。 */
-    async 'GET /api/sources'() {
+    async 'GET /api/sources'(q) {
       return {
+        ...await discovery.get(cfg, q.get('refresh') === '1'),
         roots: { configured: cfg.rootsConfigured === true, current: cfg.roots },
-        candidates: candidateRoots({ sessionDirs: cfg.sessionDirs, cwd: process.cwd(), roots: cfg.rootsConfigured ? cfg.roots : [] }),
-        providers: detectProviders(cfg.sessionDirs, cfg.roots),
-        browsers: detectBrowsers().map((b) => ({ id: b.id, name: b.name, kind: b.kind, profiles: b.profiles.map((p) => ({ profile: p.profile, readable: p.readable, error: p.error })) })),
         fileScan: { enabled: cfg.fileScan?.enabled !== false, outline: cfg.fileScan?.outline !== false },
         sessions: { replies: cfg.sessions?.replies !== false },
         browser: { enabled: cfg.browser?.enabled === true, only: cfg.browser?.only ?? [], excludeDomains: cfg.browser?.excludeDomains ?? [] },
-        shell: detectShell(cfg),
-        // 工作副本的发现是纯文件系统遍历，不需要 svn 命令，所以没装 svn 也能在设置页里提示「你这儿有工作副本」
-        svn: {
-          available: svnAvailable(),
-          enabled: cfg.svn?.enabled === true,
-          remote: cfg.svn?.remote !== false,
-          workingCopies: findWorkingCopies(cfg.roots, cfg.svn?.maxDepth ?? 4),
-        },
-        templates: templatesOf(cfg),
-        builtinTemplates: BUILTIN_TEMPLATES,
-        template: cfg.ai?.template ?? 'summary',
+        ...sourceSettings(),
         disclosure: disclosure(cfg),
       };
     },
@@ -311,6 +327,7 @@ export async function startServer(opts) {
       const state = getDayState(db, localDate);
       return {
         localDate,
+        saveRevision: journalSaveRevision(db, cfg, localDate),
         // 每个模块带上用户给它写的「补充说明」（hint），前端抽屉里直接显示、可改
         modules: day.modules.map((m) => ({ ...m, hint: state.hints[m.key] ?? '' })),
         notes: publicNotes(state.notes),
@@ -413,7 +430,7 @@ export async function startServer(opts) {
       const journal = journalFromModules(day.modules);
       const { downgraded } = validateReferences(db, allFacts(journal), localDate);
       const markdown = renderJournalMarkdown(journal, { localDate, evidenceIndex: day.evidenceIndex, footer: footerOf(cfg), source: 'rules', lang: langOf(q.get('lang')) });
-      return { markdown, clean: stripAnnotations(markdown), downgraded, source: 'rules' };
+      return { markdown, clean: stripAnnotations(markdown), downgraded, source: 'rules', saveRevision: journalSaveRevision(db, cfg, localDate) };
     },
     async 'POST /api/write/preview'(q, body) {
       const localDate = dateOr(body.date, cfg);
@@ -480,16 +497,16 @@ export async function startServer(opts) {
       const { downgraded } = validateReferences(db, allFacts(res.journal), localDate);
       const markdown = renderJournalMarkdown(res.journal, { localDate, evidenceIndex: day.evidenceIndex, footer: footerOf(cfg), source: 'ai', lang: langOf(body.lang) });
       setDraft(db, localDate, markdown, { source: 'ai', usage: res.result.usage, model: res.result.model, latencyMs: res.result.latencyMs, template: template.name });
-      return { markdown, clean: stripAnnotations(markdown), usage: res.result.usage, model: res.result.model, latencyMs: res.result.latencyMs, downgraded, source: 'ai', template: template.name, retriedWith: res.result.retriedWith ?? null };
+      return { markdown, clean: stripAnnotations(markdown), usage: res.result.usage, model: res.result.model, latencyMs: res.result.latencyMs, downgraded, source: 'ai', template: template.name, retriedWith: res.result.retriedWith ?? null, saveRevision: journalSaveRevision(db, cfg, localDate) };
     },
     async 'POST /api/save'(q, body) {
       const localDate = dateOr(body.date, cfg);
       if (typeof body.markdown !== 'string' || !body.markdown.trim()) throw new Error('没有内容可保存');
-      if (!cfg.out) throw new Error('未配置输出目录（设置里的「日记目录」）');
+      if (body.revision !== journalSaveRevision(db, cfg, localDate)) throw journalError('日记已发生变化。请先复制当前正文，再刷新或到日记库中合并修改。', 409, 'REVISION_CONFLICT');
       // 落盘的是干净版：没有 [^evN] 上标、脚注和统计行。证据在网页里看；文件就是日记本身
       const outPath = saveJournal(db, cfg, localDate, body.clean === false ? body.markdown : stripAnnotations(body.markdown));
       setDraft(db, localDate, body.markdown, { source: body.source ?? 'edited', savedTo: outPath });
-      return { ok: true, path: outPath };
+      return { ok: true, path: outPath, id: `journal:${localDate}`, saveRevision: journalSaveRevision(db, cfg, localDate) };
     },
     async 'GET /api/config'() {
       return maskConfig(cfg);
@@ -545,7 +562,7 @@ export async function startServer(opts) {
       });
     } catch (err) {
       const msg = scrubSecrets(err?.message ?? String(err));
-      return send(res, 500, { error: msg });
+      return send(res, [400, 404, 409, 413].includes(err.status) ? err.status : 500, { error: msg, code: err.code });
     }
   });
 
@@ -580,6 +597,7 @@ export async function startServer(opts) {
     api,
     close: () =>
       new Promise((resolve) => {
+        discovery.close();
         const done = () => {
           db.close();
           resolve();

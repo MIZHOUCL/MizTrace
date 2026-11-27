@@ -6,6 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { startServer } from '../src/server/index.js';
 import { DEFAULTS } from '../src/config.js';
+import { loadConfig } from '../src/config.js';
 
 /** 有些沙箱禁止 listen（EPERM）。探测一次，不行就跳过这组测试而不是误报失败。 */
 const canListen = await new Promise((resolve) => {
@@ -14,6 +15,32 @@ const canListen = await new Promise((resolve) => {
   s.listen(0, '127.0.0.1', () => s.close(() => resolve(true)));
 });
 const SKIP = canListen ? false : '当前环境不允许监听 127.0.0.1（沙箱 EPERM），server 测试在 CI 上运行';
+
+test('日记目录 API 持久化多个独立目录、拒绝非法路径，导出设置互不影响', { skip: SKIP }, async () => {
+  const { srv, call, dir, cfg } = await boot();
+  try {
+    const folders = ['one', 'two'].map((p) => path.join(dir, p));
+    for (const p of folders) { fs.mkdirSync(p); fs.writeFileSync(path.join(p, 'same.md'), '# Markdown'); }
+    const output = cfg.out;
+    const denied = await fetch(`http://127.0.0.1:${srv.port}/api/journals/directories`, { method: 'PUT', body: JSON.stringify({ directories: folders }) });
+    assert.equal(denied.status, 401);
+    assert.equal((await call('PUT', '/api/journals/directories', { directories: folders })).status, 200);
+    assert.equal(cfg.out, output);
+    assert.deepEqual(loadConfig().journalLibrary.roots, folders.map((p) => fs.realpathSync(p)));
+    assert.equal((await (await call('GET', '/api/journals')).json()).documents.length, 2);
+    await call('PUT', '/api/config', { out: path.join(dir, 'new-export') });
+    assert.equal((await (await call('GET', '/api/journals')).json()).documents.length, 2);
+    assert.equal((await call('PUT', '/api/journals/directories', { directories: ['relative'] })).status, 400);
+    assert.equal(cfg.journalLibrary.roots.length, 2);
+    const state = await (await call('GET', '/api/state')).json();
+    assert.ok(state.settingsSources.templates.length > 0);
+    // 真实 Worker 的结果可被缓存，同时主服务仍能响应其他请求。
+    const discovery = call('GET', '/api/sources');
+    assert.equal((await call('GET', '/api/state')).status, 200);
+    assert.equal((await discovery).status, 200);
+    assert.ok((await (await call('GET', '/api/sources')).json()).candidates);
+  } finally { await srv.close(); fs.rmSync(dir, { recursive: true, force: true }); delete process.env.MIZTRACE_DATA_DIR; }
+});
 
 async function boot(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-srv-'));
@@ -69,6 +96,32 @@ test('静态页面可访问，带 CSP；API 无 token → 401；错 Host → 403
   }
 });
 
+test('日记 API：无需配置模型和目录，支持编辑、冲突检测、历史及认证', { skip: SKIP }, async () => {
+  const { srv, call, dir } = await boot({ out: null });
+  try {
+    const unauthorized = await fetch(`http://127.0.0.1:${srv.port}/api/journals`);
+    assert.equal(unauthorized.status, 401);
+    const date = '2026-11-27';
+    const created = await (await call('POST', '/api/journals', { date })).json();
+    const original = created.document;
+    const updated = await call('PUT', '/api/journals/document', { ...original, markdown: '# API 编辑' });
+    assert.equal(updated.status, 200);
+    assert.equal((await updated.json()).markdown, '# API 编辑');
+    const conflict = await call('PUT', '/api/journals/document', { ...original, markdown: '# 旧版本' });
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).code, 'REVISION_CONFLICT');
+    const history = await (await call('GET', `/api/journals/history?id=${original.id}`)).json();
+    assert.equal(history.revisions.length, 1);
+    assert.equal((await call('POST', '/api/journals', { date: '2026-02-30' })).status, 400);
+    const day = await (await call('GET', `/api/day?date=${date}`)).json();
+    const saved = await (await call('POST', '/api/save', { date, markdown: '# 无目录也能保存', revision: day.saveRevision })).json();
+    assert.equal(saved.ok, true); assert.equal(saved.path, null);
+    const stale = await call('POST', '/api/save', { date, markdown: '# 不应覆盖', revision: day.saveRevision });
+    assert.equal(stale.status, 409);
+    assert.equal((await (await call('GET', '/api/journals')).json()).documents[0].title, '无目录也能保存');
+  } finally { await srv.close(); fs.rmSync(dir, { recursive: true, force: true }); delete process.env.MIZTRACE_DATA_DIR; }
+});
+
 test('day → override → journal → save 一条链路；config 保存不会抹掉 key，输出只带掩码', { skip: SKIP }, async () => {
   const { srv, call, dir } = await boot();
   try {
@@ -85,7 +138,8 @@ test('day → override → journal → save 一条链路；config 保存不会�
     }
     const jr = await (await call('GET', `/api/journal?date=${date}`)).json();
     assert.match(jr.markdown, new RegExp(`^# ${date}`));
-    const saved = await (await call('POST', '/api/save', { date, markdown: '# 手写\n\n内容' })).json();
+    const revision = (await (await call('GET', `/api/day?date=${date}`)).json()).saveRevision;
+    const saved = await (await call('POST', '/api/save', { date, markdown: '# 手写\n\n内容', revision })).json();
     assert.ok(saved.ok && fs.existsSync(saved.path));
 
     const put = await (await call('PUT', '/api/config', { ai: { enabled: true, baseUrl: 'https://api.deepseek.com/v1', apiKey: 'sk-REALKEY1234567890abcdef', model: 'deepseek-chat' } })).json();

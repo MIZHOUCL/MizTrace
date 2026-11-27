@@ -6,7 +6,7 @@ import { api } from '../lib/api.js';
 import { lang } from '../lib/i18n.js';
 const L = (zh, en) => (lang.value === 'en' ? en : zh);
 
-const { ref, onMounted } = window.Vue;
+const { ref, onMounted, onBeforeUnmount } = window.Vue;
 
 export const FolderPicker = {
   name: 'FolderPicker',
@@ -50,6 +50,7 @@ export const FolderPicker = {
       document.addEventListener('keydown', onKey);
       go(props.start || '');
     });
+    onBeforeUnmount(() => document.removeEventListener('keydown', onKey));
     return { cur, loading, err, typed, go, crumbs, L, pick: () => cur.value?.path && emit('pick', cur.value.path) };
   },
   template: `
@@ -73,7 +74,7 @@ export const FolderPicker = {
       <span class="fine" v-if="cur && cur.path">{{ L('当前：', 'Current: ') }}<code>{{ cur.path }}</code></span>
       <span class="spacer"></span>
       <button class="btn" @click="$emit('close')">{{ L('取消', 'Cancel') }}</button>
-      <button class="btn primary" @click="pick" :disabled="!cur || !cur.path">{{ L('选这个目录', 'Use this folder') }}</button>
+      <button class="btn primary" @click="pick" :disabled="loading || !!err || !cur || !cur.path">{{ L('选这个目录', 'Use this folder') }}</button>
     </div>
   </div>
 </div>`,

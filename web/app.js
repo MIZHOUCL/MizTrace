@@ -12,14 +12,30 @@ import { SetupPanel } from './components/setup.js';
 import { PreviewModal, SettingsModal } from './components/modals.js';
 import { ListView } from './components/listview.js';
 import { NotesBox } from './components/notes.js';
+import { JournalLibrary } from './components/journals.js';
+import { AppUpdates } from './components/app-updates.js';
 
 const { createApp, ref, computed, reactive, watch, onMounted, nextTick } = window.Vue;
 
 createApp({
-  components: { DayBoard, Drawer, SetupPanel, PreviewModal, SettingsModal, ListView, NotesBox },
+  components: { DayBoard, Drawer, SetupPanel, PreviewModal, SettingsModal, ListView, NotesBox, JournalLibrary, AppUpdates },
   setup() {
     const state = reactive({ today: '', tz: '', utcOffset: '', config: null, rootsConfigured: false, setupDone: false, platform: '', home: '', dataDir: '', configPath: '', disclosure: null });
     const date = ref('');
+    const page = ref(localStorage.getItem('mt_page') === 'journals' ? 'journals' : 'today');
+    const sidebarCollapsed = ref(localStorage.getItem('mt_sidebar_collapsed') === '1');
+    function toggleSidebar() {
+      sidebarCollapsed.value = !sidebarCollapsed.value;
+      localStorage.setItem('mt_sidebar_collapsed', sidebarCollapsed.value ? '1' : '0');
+    }
+    const library = ref(null), saveRevision = ref(null);
+    const L = (zh, en) => lang.value === 'en' ? en : zh;
+    let dayRequest = 0;
+    async function switchPage(value) {
+      page.value = value;
+      localStorage.setItem('mt_page', value);
+      if (value === 'today' && state.config && !setupNeeded.value) await loadDay();
+    }
     const loading = ref(false);
     const error = ref('');
     const modules = ref([]);
@@ -43,10 +59,15 @@ createApp({
     const preview = ref(null);
     const showSettings = ref(false);
     const sources = ref(null);
+    const sourcesLoading = ref(false), sourcesError = ref('');
+    let sourcesPromise;
     const testResult = ref(null);
     const testing = ref(false);
     const saving = ref(false);
     const hintSaving = ref(false);
+    window.addEventListener('miztrace-before-update', (e) => {
+      if (writing.value || saving.value || notesSaving.value || hintSaving.value || testing.value || showSettings.value) e.preventDefault();
+    });
     const setupNeeded = computed(() => state.config && !state.setupDone && !state.rootsConfigured);
 
     const selectedCount = computed(() => modules.value.filter((m) => m.selected).length);
@@ -68,31 +89,41 @@ createApp({
     async function loadState() {
       const s = await api('GET', '/api/state');
       Object.assign(state, s);
+      if (!sources.value) sources.value = s.settingsSources;
       if (!date.value) date.value = s.today;
     }
-    async function loadSources() {
-      sources.value = await api('GET', '/api/sources');
+    async function loadSources(refresh = false) {
+      if (sourcesPromise) return sourcesPromise;
+      sourcesLoading.value = true; sourcesError.value = '';
+      sourcesPromise = api('GET', `/api/sources${refresh ? '?refresh=1' : ''}`)
+        .then((value) => { sources.value = value; })
+        .catch((e) => { sourcesError.value = e.message; })
+        .finally(() => { sourcesLoading.value = false; sourcesPromise = null; });
+      return sourcesPromise;
     }
     /** refresh = 重新采集；不带就复用服务端两分钟内的采集结果（保存手记、戳泡泡之后不必再扫一遍）。 */
     async function loadDay({ refresh = false } = {}) {
+      const requestedDate = date.value, seq = ++dayRequest;
       loading.value = true;
       error.value = '';
       try {
-        const d = await api('GET', `/api/day?date=${encodeURIComponent(date.value)}${refresh ? '&refresh=1' : ''}`);
+        const d = await api('GET', `/api/day?date=${encodeURIComponent(requestedDate)}${refresh ? '&refresh=1' : ''}`);
+        if (seq !== dayRequest || requestedDate !== date.value) return;
+        saveRevision.value = d.saveRevision;
         modules.value = d.modules;
         notes.value = d.notes ?? { entries: [], images: [] };
         Object.assign(meta, { sources: d.sources, usage: d.usage, excludeProjects: d.excludeProjects });
         aiDraft.value = null;
         rulesDraft.value = null;
-        draft.value = d.draft ? { markdown: d.draft.markdown, clean: d.draft.clean, ...(d.draft.meta || {}) } : null;
+        draft.value = d.draft ? { markdown: d.draft.markdown, clean: d.draft.clean, ...(d.draft.meta || {}), saveRevision: d.saveRevision, date: requestedDate } : null;
         if (draft.value?.source === 'ai') aiDraft.value = draft.value;
         if (drawer.value) drawer.value = modules.value.find((m) => m.key === drawer.value.key) || null;
         risen.value = true;
         setTimeout(() => (risen.value = false), 600);
       } catch (e) {
-        error.value = e.message;
+        if (seq === dayRequest) error.value = e.message;
       } finally {
-        loading.value = false;
+        if (seq === dayRequest) loading.value = false;
       }
     }
     function shiftDate(days) {
@@ -162,11 +193,13 @@ createApp({
     }
 
     async function rulesJournal() {
+      const requestedDate = date.value;
       rulesBusy.value = true;
       error.value = '';
       try {
-        const r = await api('GET', `/api/journal?date=${encodeURIComponent(date.value)}&lang=${lang.value}`);
-        rulesDraft.value = { markdown: r.markdown, clean: r.clean, source: 'rules' };
+        const r = await api('GET', `/api/journal?date=${encodeURIComponent(requestedDate)}&lang=${lang.value}`);
+        if (date.value !== requestedDate) return;
+        rulesDraft.value = { markdown: r.markdown, clean: r.clean, source: 'rules', date: requestedDate, saveRevision: r.saveRevision };
         draft.value = rulesDraft.value;
         await nextTick();
         document.querySelector('.sheet')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -189,17 +222,19 @@ createApp({
       }
     }
     async function confirmWrite(templateId) {
+      const requestedDate = date.value;
       preview.value = null;
       writing.value = true;
       error.value = '';
       showToast(t('sentToModel'));
       try {
-        const r = await api('POST', '/api/write', { date: date.value, template: templateId, lang: lang.value });
+        const r = await api('POST', '/api/write', { date: requestedDate, template: templateId, lang: lang.value });
+        if (date.value !== requestedDate) return;
         if (r.blocked) {
           error.value = r.error;
           return;
         }
-        aiDraft.value = { markdown: r.markdown, clean: r.clean, source: 'ai', usage: r.usage, model: r.model, latencyMs: r.latencyMs, downgraded: r.downgraded, template: r.template, retriedWith: r.retriedWith };
+        aiDraft.value = { markdown: r.markdown, clean: r.clean, source: 'ai', usage: r.usage, model: r.model, latencyMs: r.latencyMs, downgraded: r.downgraded, template: r.template, retriedWith: r.retriedWith, date: requestedDate, saveRevision: r.saveRevision };
         if (r.retriedWith) showToast(t('retriedWith', { n: r.retriedWith }));
         draft.value = aiDraft.value;
         meta.usage = (await api('GET', `/api/day?date=${encodeURIComponent(date.value)}`)).usage;
@@ -211,12 +246,15 @@ createApp({
         writing.value = false;
       }
     }
-    async function saveDraft() {
-      if (!draft.value) return;
+    async function saveDraft(edit = false) {
+      if (!draft.value || saving.value) return;
+      const savingDraft = draft.value;
       saving.value = true;
       try {
-        const r = await api('POST', '/api/save', { date: date.value, markdown: draft.value.markdown, source: draft.value.source });
-        showToast(`${t('savedTo')} ${r.path}`);
+        const r = await api('POST', '/api/save', { date: savingDraft.date || date.value, markdown: savingDraft.markdown, source: savingDraft.source, revision: savingDraft.saveRevision || saveRevision.value });
+        savingDraft.saveRevision = r.saveRevision;
+        showToast(r.path ? `${t('savedTo')} ${r.path}` : L('已保存到本地日记库', 'Saved to the local journal library'));
+        if (edit === true) { await switchPage('journals'); await nextTick(); await library.value?.openSaved(r); }
       } catch (e) {
         error.value = e.message;
       } finally {
@@ -326,12 +364,8 @@ createApp({
     }
     async function openSettings() {
       testResult.value = null;
-      try {
-        await loadSources();
-        showSettings.value = true;
-      } catch (e) {
-        error.value = e.message;
-      }
+      showSettings.value = true;
+      loadSources();
     }
     async function testAi(ai) {
       testing.value = true;
@@ -352,7 +386,7 @@ createApp({
         state.rootsConfigured = Boolean(payload.roots && String(payload.roots).trim());
         showSettings.value = false;
         showToast(t('settingsSaved'));
-        await loadDay({ refresh: true });
+        if (page.value === 'today') await loadDay({ refresh: true });
       } catch (e) {
         error.value = e.message;
       } finally {
@@ -397,17 +431,18 @@ createApp({
       try {
         await loadState();
         if (setupNeeded.value) await loadSources();
-        else await loadDay({ refresh: true });
+        else if (page.value === 'today') await loadDay({ refresh: true });
       } catch (e) {
         error.value = e.message;
       }
     });
     watch(setupNeeded, (v) => {
-      if (v && !sources.value) loadSources().catch((e) => (error.value = e.message));
+      if (v && !sources.value?.candidates) loadSources();
     });
 
     return {
-      state, date, loading, error, modules, notes, notesSaving, meta, view, drawer, popping, risen, toast, draft, aiDraft, rulesDraft, writing, rulesBusy, previewing, preview, showSettings, sources, testResult, testing, saving, hintSaving, setupNeeded,
+      page, library, L, switchPage, sidebarCollapsed, toggleSidebar,
+      state, date, loading, error, modules, notes, notesSaving, meta, view, drawer, popping, risen, toast, draft, aiDraft, rulesDraft, writing, rulesBusy, previewing, preview, showSettings, sources, sourcesLoading, sourcesError, loadSources, testResult, testing, saving, hintSaving, setupNeeded,
       selectedCount, headline, subline, legend, dateLabel, aiReady,
       renderMd, catVar, CAT_WORD, num, t, lang, LANGS, langMenu, pickLang,
       showAi: () => (draft.value = aiDraft.value),
@@ -421,9 +456,21 @@ createApp({
     };
   },
   template: `
-<div class="app">
+<div class="app" :class="{'sidebar-collapsed':sidebarCollapsed}">
+  <aside class="module-sidebar">
+    <div class="sidebar-brand"><img src="./logo.png" alt="" width="34" height="34"><div><strong>MizTrace</strong><small>{{ L('记录，让成长可见', 'Make progress visible') }}</small></div></div>
+    <button class="sidebar-toggle" @click="toggleSidebar" :aria-expanded="!sidebarCollapsed" :aria-label="sidebarCollapsed ? L('展开侧栏', 'Expand sidebar') : L('收起侧栏', 'Collapse sidebar')" :title="sidebarCollapsed ? L('展开侧栏', 'Expand sidebar') : L('收起侧栏', 'Collapse sidebar')">{{ sidebarCollapsed ? '›' : '‹' }}</button>
+    <span class="sidebar-label">{{ L('我的工作空间', 'WORKSPACE') }}</span>
+    <nav :aria-label="L('功能模块', 'Modules')">
+      <button :class="{active:page==='today'}" :aria-label="L('今日记录', 'Today')" :aria-current="page==='today' ? 'page' : undefined" @click="switchPage('today')"><span aria-hidden="true">◷</span><div><strong>{{ L('今日记录', 'Today') }}</strong><small>{{ L('整理一天的工作痕迹', 'Your daily work traces') }}</small></div></button>
+      <button :class="{active:page==='journals'}" :aria-label="L('日记库', 'Journal library')" :aria-current="page==='journals' ? 'page' : undefined" @click="switchPage('journals')"><span aria-hidden="true">▤</span><div><strong>{{ L('日记库', 'Journal library') }}</strong><small>{{ L('回看、编辑与沉淀', 'Read, edit and reflect') }}</small></div></button>
+    </nav>
+    <div class="sidebar-bottom"><span class="local-dot"></span>{{ L('记录保存在本机', 'Records stored locally') }}</div>
+  </aside>
+  <div class="app-content">
   <header class="topbar">
-    <span class="brand"><img src="./logo.png" alt="" width="26" height="26">MizTrace</span>
+    <span class="section-name" v-if="page==='journals'">{{ L('记录 / 日记库', 'Records / Library') }}</span>
+    <template v-if="page==='today'">
     <nav class="datenav" :aria-label="t('pickDate')">
       <button class="btn quiet" @click="shiftDate(-1)" :title="t('prevDay')" :aria-label="t('prevDay')">‹</button>
       <label class="datepick" @click.prevent="pickDate"><span>{{ dateLabel }}</span><input type="date" v-model="date" @change="loadDay({refresh: true})" :aria-label="t('pickDate')"></label>
@@ -443,19 +490,25 @@ createApp({
     <button class="btn primary" @click="openPreview()" :disabled="writing || previewing || loading || !selectedCount" :title="loading ? t('genTitleBusy') : (!selectedCount ? t('genTitleNone') : (aiReady ? '' : t('genTitleNoAi')))">
       <span v-if="writing || previewing" class="spin light"></span> {{ writing ? t('generating') : (previewing ? t('preparing') : t('genJournal')) }}
     </button>
+    </template>
+    <span class="spacer" v-if="page==='journals'"></span>
     <span class="langpick">
       <button class="btn quiet lang" @click="langMenu = !langMenu" :aria-label="t('lang')" aria-haspopup="listbox" :aria-expanded="langMenu"><b>{{ lang === 'en' ? 'US' : 'CN' }}</b> {{ lang === 'en' ? 'EN' : '中' }} <i>⌄</i></button>
       <ul class="langmenu" v-if="langMenu" role="listbox">
         <li v-for="l in LANGS" :key="l.id" role="option" :aria-selected="l.id === lang" :class="{on: l.id === lang}" @click="pickLang(l.id)"><b>{{ l.flag }}</b> {{ l.label }}<span v-if="l.id === lang">✓</span></li>
       </ul>
     </span>
-    <button class="btn" @click="openSettings">{{ t('settings') }}</button>
+    <button class="btn" @click="openSettings" :disabled="!state.config">{{ t('settings') }}</button>
+    <app-updates></app-updates>
   </header>
 
   <p v-if="error" class="banner" role="alert">{{ error }} <button class="btn small quiet" @click="error=''">{{ t('close') }}</button></p>
 
-  <main v-if="setupNeeded && sources">
-    <setup-panel :sources="sources" :home="state.home" :platform="state.platform" @done="finishSetup" @skip="skipSetup" @lang="pickLang"></setup-panel>
+  <journal-library v-if="state.config" v-show="page==='journals'" ref="library" :active="page==='journals'" :today="state.today"></journal-library>
+  <div v-show="page==='today'">
+  <main v-if="setupNeeded">
+    <setup-panel v-if="sources?.candidates" :sources="sources" :home="state.home" :platform="state.platform" @done="finishSetup" @skip="skipSetup" @lang="pickLang"></setup-panel>
+    <div v-else class="empty"><p>{{ sourcesError || L('正在查找本机来源…你也可以先打开日记库。', 'Finding local sources… You can open the journal library now.') }}</p><button class="btn" @click="loadSources(true)" :disabled="sourcesLoading">{{ L('重新探测', 'Retry') }}</button><button class="btn" @click="openSettings">{{ t('settings') }}</button></div>
   </main>
 
   <template v-else>
@@ -481,22 +534,25 @@ createApp({
 
     <section class="sheet" v-if="draft" aria-label="diary">
       <div class="tools">
-        <strong>{{ draft.source==='ai' ? t('aiDiary') : t('rulesDiary') }}</strong>
+        <strong>{{ draft.source==='edited' ? L('编辑后的日记', 'Edited journal') : (draft.source==='ai' ? t('aiDiary') : t('rulesDiary')) }}</strong>
         <span class="u" v-if="draft.usage">{{ draft.model }}<template v-if="draft.template">, {{ t('template') }} "{{ draft.template }}"</template>, {{ t('input') }} {{ num(draft.usage.input) }} / {{ t('output') }} {{ num(draft.usage.output) }} tokens<template v-if="draft.downgraded">, {{ draft.downgraded }} {{ t('downgraded') }}</template><template v-if="draft.retriedWith">, {{ t('retriedMeta', {n: draft.retriedWith}) }}</template></span>
         <span class="spacer"></span>
         <button class="btn small" v-if="draft.source !== 'ai' && aiDraft" @click="showAi">{{ t('backToAi') }}</button>
         <button class="btn small" v-if="draft.source === 'ai' && rulesDraft" @click="showRules">{{ t('backToRules') }}</button>
         <button class="btn small" v-if="draft.source === 'ai'" @click="openPreview()" :disabled="writing || previewing || loading || !selectedCount">{{ t('regenerate') }}</button>
         <button class="btn small" @click="copyDraft">{{ t('copyMd') }}</button>
-        <button class="btn small primary" @click="saveDraft" :disabled="saving">{{ saving ? t('saving') : t('saveToDir') }}</button>
+        <button class="btn small" @click="saveDraft(true)" :disabled="saving">{{ L('保存并编辑', 'Save and edit') }}</button>
+        <button class="btn small primary" @click="saveDraft(false)" :disabled="saving">{{ saving ? t('saving') : L('保存日记', 'Save journal') }}</button>
         <button class="btn small quiet" @click="draft=null">{{ t('collapse') }}</button>
       </div>
       <article class="md" v-html="renderMd(draft.markdown)" @click="onMdClick"></article>
     </section>
   </template>
+  </div>
+  </div>
 
   <preview-modal v-if="preview" :preview="preview" :writing="writing" @close="preview=null" @confirm="confirmWrite" @template="openPreview" @settings="preview=null; openSettings()"></preview-modal>
-  <settings-modal v-if="showSettings && sources" :config="state.config" :sources="sources" :home="state.home" :platform="state.platform" :config-path="state.configPath" :testing="testing" :test-result="testResult" :saving="saving" @close="showSettings=false" @save="saveSettings" @test="testAi" @install-shell="installShell"></settings-modal>
+  <settings-modal v-if="showSettings" :config="state.config" :sources="sources" :sources-loading="sourcesLoading" :sources-error="sourcesError" :home="state.home" :platform="state.platform" :config-path="state.configPath" :testing="testing" :test-result="testResult" :saving="saving" @close="showSettings=false" @save="saveSettings" @test="testAi" @install-shell="installShell" @refresh-sources="loadSources(true)"></settings-modal>
 
   <div class="toast" v-if="toast" role="status">{{ toast.text }} <button v-if="toast.undo" @click="toast.undo()">{{ t('undo') }}</button></div>
 </div>`,
