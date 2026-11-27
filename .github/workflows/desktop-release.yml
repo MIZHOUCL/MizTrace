@@ -1,0 +1,85 @@
+name: Desktop release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32
+            arch: x64
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          architecture: ${{ matrix.arch }}
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Check version and native architecture
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; const p=JSON.parse(fs.readFileSync('package.json')); const d=JSON.parse(fs.readFileSync('desktop/package.json')); if(p.version!==d.version) throw Error('Version mismatch'); if(process.arch!==process.env.EXPECTED_ARCH) throw Error('Wrong runtime architecture'); if(process.env.GITHUB_REF_TYPE==='tag' && process.env.GITHUB_REF_NAME!=='v'+p.version) throw Error('Tag must match package version');"
+      - name: Test core
+        run: npm test
+      - name: Install desktop dependencies
+        run: npm ci --prefix desktop
+      - name: Build installers
+        run: npm run desktop:make
+      - name: Smoke test packaged application
+        run: node scripts/desktop-smoke.mjs
+      - name: Normalize download names and checksums
+        run: node scripts/release-assets.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MizTrace-${{ matrix.platform }}-${{ matrix.arch }}
+          path: desktop/out/release/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: MizTrace-*
+          merge-multiple: true
+          path: release
+      - name: Publish release downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          extra=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then extra+=(--prerelease); fi
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "MizTrace $RELEASE_TAG" --generate-notes "${extra[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber
