@@ -1,0 +1,113 @@
+MizTrace Personal Use and Commercial License 1.0
+Effective for MizTrace v0.5.1 and later copies distributed with this license.
+Copyright (c) 2026 MIZHOUCL. All rights reserved except as expressly granted below.
+Commercial licensing contact: 2907638436@qq.com
+
+1. Scope and prior rights
+
+"Software" means the MizTrace source code, binaries and documentation supplied
+with this license, to the extent the licensor has authority to license them.
+This license does not replace third-party licenses or withdraw rights already
+granted for earlier copies under the MIT License. MizTrace v0.5.0 and earlier
+MIT-licensed copies remain available under their original terms. Independently
+licensed portions retain those terms; see LICENSE-MIT and THIRD_PARTY_NOTICES.md.
+
+2. Free individual use
+
+An individual may use, run, copy and modify the Software without paying a fee
+for that individual's own use. This includes personal learning, research,
+private self-hosting used only by that individual, personal projects, portfolio
+demonstrations, and keeping that individual's own work journals or reports.
+An employee or freelancer may independently use the Software to document their
+own work, including on a work computer, and may submit or share the resulting
+documents with an employer or client without buying a commercial license.
+Use on multiple devices by the same individual is permitted.
+
+This permission does not cover deployment or operation by or for an organization,
+shared multi-user systems, or commercial distribution or services described in
+section 3. The fact that an organization benefits from an individual's exported
+report does not by itself make the individual's use a paid use. Merely reimbursing
+an individual's device or permitting personal installation does not by itself
+constitute organization-wide deployment.
+
+3. Uses requiring a paid commercial license
+
+Before doing any of the following, obtain a separate written commercial license
+from MIZHOUCL and pay any fees specified in that agreement:
+
+(a) Centrally deploying, provisioning, administering or operating the Software
+    for a company, team or other organization, including batch installation,
+    company-provided instances, shared accounts and team-wide infrastructure.
+(b) Operating shared or multi-user instances, team dashboards, centralized
+    collection of other people's records, or organizational monitoring,
+    reporting or management systems based on the Software.
+(c) Offering the Software or its functionality to customers or other third
+    parties as a hosted service, SaaS, API, managed service or commercial
+    product, whether charged directly or monetized through subscriptions,
+    advertising, bundled services or other commercial arrangements.
+(d) Selling, renting, sublicensing for payment, white-labeling, or bundling the
+    Software or modified versions into a commercial product or service.
+(e) Providing paid installation, customization, deployment, operation or support
+    of the Software for another person or organization.
+
+Independent individuals using their own separate copies and sharing only their
+output documents remain covered by section 2. Sharing Software accounts,
+instances or centrally managed records is not merely sharing output documents.
+
+No commercial license is granted merely by contacting MIZHOUCL, requesting a
+quote, downloading the Software or making an unsolicited payment. Price,
+licensed users or deployments, term, support and any additional rights must be
+agreed in writing. This license does not set an automatic per-user fee.
+
+4. Noncommercial copies and modifications
+
+You may make and distribute unmodified or modified copies without a charge for
+the personal uses permitted by section 2, including public source-code forks,
+provided that you keep this license, copyright notices, historical MIT notices
+and applicable third-party notices with the copies, clearly identify your
+modifications, and do not present a modified copy as an official MizTrace release.
+You may not grant broader rights to portions covered only by this license.
+Commercial distribution and services require the agreement described in section 3.
+These conditions do not restrict permissions independently granted under MIT or
+another third-party license.
+
+5. Your data and output
+
+This license claims no ownership of your data, journals, reports or other output
+and places no additional licensing or payment restriction on their use, sharing
+or sale. Third-party content and services may have their own terms. Copying
+Software code into an output does not remove the code's applicable license.
+
+6. Reserved rights and trademarks
+
+Rights not expressly granted are reserved. No right to use MizTrace branding
+to imply endorsement, sponsorship or official status is granted. Descriptive
+references to the Software and required attribution are permitted.
+
+7. Termination
+
+The permissions granted by this license terminate if you materially breach its
+conditions. Upon termination, stop the uses authorized only by this license and
+remove the corresponding Software copies, unless MIZHOUCL grants written
+permission otherwise. This does not require deleting your own data or output
+and does not terminate independent rights under prior MIT or third-party licenses.
+
+8. Disclaimer and liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+"AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE AUTHORS
+AND COPYRIGHT HOLDERS SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE OR OTHER DEALINGS.
+Nothing in this license excludes rights or liabilities that applicable law
+does not permit to be excluded. A separate signed commercial agreement may
+provide different warranties or support terms.
+
+9. Interpretation
+
+This English text is the license. The Chinese explanation in LICENSING.md and
+README summaries are provided for convenience; if they differ, this license
+controls, except where applicable law requires otherwise. If a provision is
+unenforceable, the remaining provisions continue to the extent permitted by law.

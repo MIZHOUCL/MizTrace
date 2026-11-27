@@ -1,9 +1,9 @@
 {
   "name": "miztrace",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "MizTrace（密迹）：把今天真实发生过的工作痕迹，整理成一份每一句话都能点回证据的日记",
   "type": "module",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "bin": {
     "miztrace": "bin/miztrace.js",
     "daytrace": "bin/miztrace.js"
@@ -23,7 +23,11 @@
     "bin",
     "src",
     "web",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "LICENSE-MIT",
+    "LICENSING.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "keywords": [
     "worklog",

@@ -379,12 +379,12 @@ export function logAiRun(db, run) {
   );
 }
 
-/** 某个自然日（按 created_at 的 UTC 日期前缀）已调用次数与 token。 */
+/** 按业务归属日统计所有已记录的调用，包括校验失败和重试，避免低估消耗。 */
 export function aiUsageToday(db, localDate) {
   const row = db
     .prepare(
       `SELECT COUNT(*) AS calls, COALESCE(SUM(input_tokens),0) AS input, COALESCE(SUM(output_tokens),0) AS output
-       FROM ai_runs WHERE local_date = ? AND ok = 1`,
+       FROM ai_runs WHERE local_date = ?`,
     )
     .get(localDate);
   return { calls: row?.calls ?? 0, input: row?.input ?? 0, output: row?.output ?? 0 };

@@ -13,16 +13,20 @@ const cfg = { ...structuredClone(DEFAULTS), setupDone: true, rootsConfigured: tr
   sessionDirs: Object.fromEntries(Object.keys(defaultSessionDirs()).map((k) => [k, [path.join(data, 'missing')]])),
   ai: { ...DEFAULTS.ai, baseUrl: 'https://fixture.example/v1', model: 'fixture-model', apiKey: 'fixture-key', dailyLimit: 20 } };
 const raw = 'MizTrace：完成日记目录管理，新增 8 项测试均通过。\n数据平台：导入接口仍在等待测试环境。\n下周计划补充 macOS 签名验证。';
-let calls = 0;
+let calls = 0, scenario = 'normal';
 const reportDeps = { fetchImpl: async (_url, init) => {
   calls++;
-  const input = JSON.parse(JSON.parse(init.body).messages[1].content);
+  const rawInput = JSON.parse(JSON.parse(init.body).messages[1].content);
+  const input = rawInput.input ?? rawInput;
   await new Promise((r) => setTimeout(r, 350));
+  if (scenario === 'unavailable') return { ok: false, status: 503, text: async () => 'Fixture service unavailable' };
   const facts = [
     { project: 'MizTrace', topic: '独立日记目录', status: 'done', text: '完成日记目录管理，新增 8 项测试均通过。', quote: '完成日记目录管理，新增 8 项测试均通过。' },
     { project: '数据平台', topic: '导入联调', status: 'blocked', text: '导入接口仍在等待测试环境。', quote: '导入接口仍在等待测试环境。' },
     { project: 'MizTrace', topic: 'macOS 签名', status: 'plan', text: '下周计划补充 macOS 签名验证。', quote: '下周计划补充 macOS 签名验证。' },
   ].map(({ quote, ...f }) => ({ ...f, refs: [input.sources?.[0].ref || 's1'], quotes: [{ ref: input.sources?.[0].ref || 's1', text: quote }] }));
+  if (input.sources && scenario === 'partial') facts.push({ ...facts[0], topic: '未经证实的收益', text: '效率提升 99%。' });
+  if (input.sources && scenario === 'fallback') { facts.splice(0, facts.length, { ...facts[0], refs: ['unknown'] }); }
   const output = input.sources ? { facts } : { keep: ['f1', 'f2', 'f3'], highlights: ['f1'], conflicts: [] };
   return { ok: true, text: async () => JSON.stringify({ model: 'fixture-model', choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(output) } }], usage: { prompt_tokens: 500, completion_tokens: 200 } }) };
 } };
@@ -95,6 +99,34 @@ try {
   await page.locator('.report-document h1').filter({ hasText: '月报 · 资料整理版' }).waitFor();
   assert.equal(calls, 2, '本地模板不调用模型');
   assert.equal(await page.locator('.report-history > button').count(), 2);
+  scenario = 'partial';
+  await page.getByRole('button', { name: '预览素材并生成报告 →', exact: true }).click();
+  await page.getByRole('button', { name: '确认发送并生成', exact: true }).click();
+  await page.getByText('已保存的待核对草稿', { exact: true }).waitFor();
+  assert.ok((await page.locator('.report-document').innerText()).includes('目录'));
+  assert.ok(!(await page.locator('.report-document').innerText()).includes('99%'));
+  await page.locator('.report-quality > details > summary').click();
+  assert.ok((await page.locator('.report-quality').innerText()).includes('99%'));
+  await page.screenshot({ path: path.join(data, 'report-partial.png'), fullPage: true });
+  scenario = 'fallback';
+  await page.getByRole('button', { name: '预览素材并生成报告 →', exact: true }).click();
+  await page.getByRole('button', { name: '确认发送并生成', exact: true }).click();
+  await page.getByText('已保存的资料整理版', { exact: true }).waitFor();
+  assert.ok((await page.locator('.report-document').innerText()).includes('待整理的原始素材'));
+  assert.equal(await page.locator('.report-history > button').count(), 4);
+  await page.screenshot({ path: path.join(data, 'report-fallback.png'), fullPage: true });
+  scenario = 'unavailable';
+  await page.getByRole('button', { name: '预览素材并生成报告 →', exact: true }).click();
+  await page.getByRole('button', { name: '确认发送并生成', exact: true }).click();
+  await page.getByRole('button', { name: '保存本地资料整理版', exact: true }).waitFor();
+  assert.match(await page.locator('.library-error').innerText(), /HTTP 503/);
+  const callsBeforeRecovery = calls;
+  await page.getByRole('button', { name: '保存本地资料整理版', exact: true }).click();
+  await page.getByText('已保存的报告', { exact: true }).waitFor();
+  assert.equal(calls, callsBeforeRecovery, '模型不可用时本地恢复不调用模型');
+  assert.equal(await page.locator('.report-history > button').count(), 5);
+  assert.equal(await page.locator('.library-error').count(), 0);
+  await page.screenshot({ path: path.join(data, 'report-recovered.png'), fullPage: true });
   assert.deepEqual(errors, []);
   console.log('Reports browser smoke passed (mock model):', data);
 } finally { await browser.close(); await server.close(); }

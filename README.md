@@ -11,13 +11,15 @@
 
 ## 下载桌面 App
 
-桌面 App 已加入构建配置。**下面的下载入口需要首次正式 GitHub Release 发布成功后才可用**；仅上传源码不会生成安装包。若你发布到其他仓库，请修改链接中的仓库名。
+**下面的固定入口始终下载 GitHub 上标记为 Latest 的最新正式版**，发布新正式版后无需修改链接。测试版、仅推送源码或尚未打包成功的标签不会替换这些下载入口。历史版本和更新内容可在 [Releases](https://github.com/MIZHOUCL/MizTrace/releases) 查看。
 
 | 系统 | 下载入口 |
 | --- | --- |
-| Windows x64 | [下载安装程序](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-Windows-x64-Setup.exe) |
-| Mac Apple Silicon（M 系列芯片） | [下载 DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-arm64.dmg) |
-| Mac Intel | [下载 DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-x64.dmg) |
+| Windows x64 | [下载最新安装程序](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-Windows-x64-Setup.exe) |
+| Mac Apple Silicon（M 系列芯片） | [下载最新 DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-arm64.dmg) |
+| Mac Intel | [下载最新 DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-x64.dmg) |
+
+**个人自用免费，企业统一部署、团队共享系统或对外商业服务需购买授权。** 个人独立使用写工作周报并提交给公司也免费。详见 [授权说明](./LICENSING.md)。
 
 安装包内置运行环境，用户无需安装 Node.js。0.4.0 起支持在应用内查看新版本、发布日期与说明，自行决定下载；下载后可立即重启，或下次启动时更新。旧版需要一次覆盖安装以接入更新器。macOS 应用内安装需要 Developer ID 签名的版本。发布步骤见 [桌面打包与发布](./docs/桌面打包与发布.md)。
 
@@ -51,7 +53,7 @@ miztrace ui
 3. 预览将发送给模型的正文和覆盖日期，再确认生成。与每日痕迹写作不同，报告需要发送所选日记 / Markdown 的正文；未选记录、图片和原始工作文件不发送。大篇幅素材会分块处理，超出 6 万字符会明确提示缩小范围。
 4. 报告按项目区分已完成、推进中、问题与计划。展开「核对事实与原文引句」回看依据；点击「编辑报告」进入日记库的 Markdown 编辑器，支持保存、历史版本、复制和导出。
 
-生成分为事实提炼与整篇审核两步，再由固定模板排版，避免整篇自由扩写。引用编号、原文引句和正文数字都经过校验；相互冲突的记录单独标出，缺少后续计划时保留待补充提示。每步校验失败最多重试一次，仍失败则报错，不保存不完整的报告。页面显示实际阶段，调用量计入每日上限。
+生成分为事实提炼与整篇审核两步，再由固定模板排版。引用、引句和数字经过检查，兼容千分位、全角百分号及常见中文数量等写法。每步失败最多纠正一次；仍有问题时保留可核对的事实并标记为待核对草稿，具体问题与原文可在「生成检查」中查看。完全无法采用 AI 内容时保存为资料整理版供手动编辑，不把未通过的说法当作成果。所有调用（包括校验失败和重试）计入每日用量。
 
 也可以选择「使用本地模板」，不调用模型，把素材放入待整理区。报告保存在独立的本地表中，不覆盖每日记录；重新生成保留旧报告。引句匹配无法证明所有语义判断正确，原日记本身的错误也可能被带入，分享前仍需核对。
 
@@ -254,4 +256,6 @@ npm test
 
 ## 许可
 
-MIT。
+从 0.5.1 起使用 [MizTrace Personal Use and Commercial License](./LICENSE)：个人自用免费；企业统一部署、团队共享系统或对外商业服务需购买授权。个人工作日记、周报及导出的文档可以提交给公司或客户。
+
+商业咨询：[2907638436@qq.com](mailto:2907638436@qq.com)。完整使用边界见 [授权说明](./LICENSING.md)。0.5.0 及此前已按 MIT 发布的副本继续适用 [原 MIT 许可](./LICENSE-MIT)，第三方组件保留其原有许可证。

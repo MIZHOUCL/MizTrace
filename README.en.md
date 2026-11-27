@@ -11,6 +11,18 @@ The core has no third-party dependencies and works without an API key. macOS and
 
 ## Desktop app and journal library
 
+Download the **latest stable release** using these permanent links. Successful stable releases update these links automatically; prereleases and failed builds do not replace them.
+
+| Platform | Download |
+| --- | --- |
+| Windows x64 | [Latest installer](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-Windows-x64-Setup.exe) |
+| Mac Apple Silicon | [Latest DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-arm64.dmg) |
+| Mac Intel | [Latest DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-x64.dmg) |
+
+Individual use is free, including independently writing your own work journals and reports. Organization-wide deployments, shared systems and commercial services require a paid license; see [LICENSE](./LICENSE).
+
+Weekly and monthly reports validate quotes and numeric claims, with equivalent numeric formats normalized. A failed claim no longer discards every valid fact: incomplete results are clearly labeled for review with diagnostic details and the original sources. If no AI facts can be used, an editable source draft is saved. Failed validation and retries count toward usage limits.
+
 The sidebar now includes Today and Journal library, with a collapse button that remembers your preference. Browse saved entries, generated drafts and UTF-8 Markdown files from your diary folder; search titles, dates and filenames; edit and preview Markdown; save previous versions or export `.md` files. New entries work without AI setup or an output folder. Source editing supports `Ctrl/Cmd+S`, bold/italic shortcuts and undo/redo. External file changes trigger a conflict message without overwriting your edits.
 
 The Electron app bundles its own Node runtime. Windows x64, macOS arm64 and macOS x64 builds are configured in `.github/workflows/desktop-release.yml`. Run `npm run desktop:install`, then `npm run desktop:dev` or `npm run desktop:make`. Installers appear under `desktop/out/`.
@@ -219,4 +231,6 @@ Want another AI tool supported? Open an issue with a redacted sample session fil
 
 ## License
 
-MIT.
+From v0.5.1: [MizTrace Personal Use and Commercial License](./LICENSE). Individual use is free; organization-wide deployments, shared systems, commercial distribution and services require a separate paid license. Your output documents are not subject to an additional fee under this license.
+
+Contact [2907638436@qq.com](mailto:2907638436@qq.com) for commercial licensing. Copies and portions previously licensed under MIT, including v0.5.0 and earlier, retain their [original MIT permissions](./LICENSE-MIT). Third-party components retain their own licenses; see [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

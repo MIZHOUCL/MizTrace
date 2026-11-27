@@ -84,6 +84,10 @@ small { font-size: 12px; }
 .report-output-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
 .report-output-tools > strong { font-size: 12px; }
 .report-result-meta { padding: 0 24px; }
+.report-quality { margin: 16px 24px; padding: 16px; border: 1px solid #dfcba5; border-radius: 8px; background: #fff8e8; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.report-quality summary { cursor: pointer; }
+.report-quality pre { max-height: 280px; overflow: auto; white-space: pre-wrap; font: inherit; background: #ffffffa0; padding: 12px; }
+.report-recovery { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: -4px 0 20px; }
 .report-document { padding: 18px 32px 32px; overflow-wrap: anywhere; }
 .report-document h1 { font-size: 24px; }
 .report-document h2 { margin-top: 28px; font-size: 18px; }

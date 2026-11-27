@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openDb, setNotes, setDraft, aiUsageToday } from '../src/db.js';
+import { openDb, setNotes, setDraft, aiUsageToday, logAiRun } from '../src/db.js';
 import { createLibraryDocument, saveLibraryDocument, listLibraryDocuments, libraryHistory } from '../src/journal-library.js';
 import { reportOptions, reportSources, selectedReportSources } from '../src/reports.js';
 import { createReport, saveReport, readReport } from '../src/report-store.js';
@@ -91,9 +91,14 @@ test('两阶段生成成功：结构固定、项目分开、带引句、调用�
   assert.match(result.markdown, /\[S1\]/); assert.equal(result.metadata.facts.length, 2); assert.ok(phases.some((s) => s.includes('审核')));
   assert.ok(!deps.requests[0].messages[1].content.includes('journal:2026-11-26'), '内部文件标识不发送给模型');
 });
-test('坏引用仅重试一次，失败不返回看似成功的报告，每次调用均记账', async () => {
+test('坏引用仅重试一次，随后返回明确标注的原文整理版，每次调用均记账', async () => {
   const deps = model(() => ({ facts: [card({ refs: ['not-real'] })] })), logs = [];
-  await assert.rejects(generateReport({ ai }, prepared(), { ...deps, onCall: (_r, ok) => logs.push(ok) }), /未通过质量校验/);
+  const result = await generateReport({ ai }, prepared(), { ...deps, onCall: (_r, ok) => logs.push(ok) });
+  assert.equal(result.metadata.source, 'local-fallback'); assert.equal(result.metadata.quality, 'fallback');
+  assert.match(result.markdown, /资料整理版/); assert.match(result.markdown, /待整理的原始素材/);
+  assert.match(result.markdown, /未能获得可采用的 AI 内容/);
+  assert.doesNotMatch(result.markdown, /尚未进行 AI 提炼/);
+  assert.ok(result.metadata.warnings.length); assert.equal(result.metadata.facts, undefined);
   assert.equal(deps.requests.length, 2); assert.deepEqual(logs, [false, false]);
 });
 test('纠正后成功且所有调用的 token 均统计；重复事实去重', async () => {
@@ -101,14 +106,63 @@ test('纠正后成功且所有调用的 token 均统计；重复事实去重', a
   const result = await generateReport({ ai }, prepared(), deps);
   assert.equal(result.metadata.calls, 3); assert.equal(result.metadata.usage.input, 300); assert.equal(result.metadata.facts.length, 1);
 });
-test('空白事实拒绝生成，受管设备与密钥熔断均零外发，本地模板可用', async () => {
+test('空白事实保留原文供整理，受管设备与密钥熔断均零外发', async () => {
   const deps = model(() => ({ facts: [] }));
-  await assert.rejects(generateReport({ ai }, prepared(), deps), /没有足够/);
+  const fallback = await generateReport({ ai }, prepared(), deps);
+  assert.equal(fallback.metadata.quality, 'fallback'); assert.equal(deps.requests.length, 1);
   const zero = model(() => { throw new Error('不应调用'); });
   await assert.rejects(generateReport({ ai, managedDevice: true }, prepared(), zero), /外发/);
   const p = prepareReportPrompt({ options, sources: [{ ...source, content: 'sk-proj-' + 'a'.repeat(30) }], warnings: [] });
   await assert.rejects(generateReport({ ai }, p, zero), /密钥/);
   assert.equal(zero.requests.length, 0); assert.match(localReport(prepared()).markdown, /资料整理版/);
+});
+
+test('等价数字、中文数量、日期和引文标记不误判；不能借此改变数值或百分比', () => {
+  const check = (quote, text, extra = {}) => validateReportFacts({ facts: [card({ text, quotes: [{ ref: 's1', text: quote }], ...extra })] }, [{ ref: 's1', date: '2026-11-27', content: quote }]);
+  for (const [quote, text] of [
+    ['完成 1,000 条数据校验。', '完成 1000 条数据校验。'],
+    ['覆盖率达到 80％。', '覆盖率达到 80%。'],
+    ['新增八项测试通过。', '新增8项测试通过。'],
+    ['修复二十一个问题。', '修复21个问题。'],
+    ['耗时 1.0 秒。', '耗时 1 秒。'],
+    ['修复问题并完成验证。', '2026年11月27日修复问题并完成验证。[S1]'],
+    ['完成数据校验。', '1. 完成数据校验。'],
+  ]) assert.equal(check(quote, text).length, 1, text);
+  for (const [quote, text] of [
+    ['新增八项测试通过。', '新增18项测试通过。'],
+    ['覆盖率达到 80%。', '覆盖率达到 90%。'],
+    ['处理了 80 条记录。', '效率提升 80%。'],
+    ['数值变化为 -8。', '数值变化为 8。'],
+    ['约一百二个问题。', '约102个问题。'],
+  ]) assert.throws(() => check(quote, text), /数字/);
+  assert.throws(() => check('完成8项测试。', '完成8项测试。', { topic: '通过99项测试' }), /事项中的数字 99/);
+});
+
+test('单条数字错误不丢掉有效事实，重试得到具体反馈，未采用内容明确标记', async () => {
+  const deps = model((_body, n) => n < 3 ? { facts: [card(), card({ topic: '收益', text: '效率提升 99%。' })] } : { keep: ['f1'], highlights: ['f1'], conflicts: [] });
+  const result = await generateReport({ ai }, prepared(), deps);
+  assert.equal(result.metadata.quality, 'partial'); assert.equal(result.metadata.facts.length, 1);
+  assert.match(result.markdown, /待核对草稿/); assert.match(result.markdown, /目录管理/);
+  assert.doesNotMatch(result.markdown, /99%/); assert.match(result.metadata.warnings[0].message, /第 2 条事实.*99%/);
+  assert.match(deps.requests[1].messages[0].content, /99%/);
+  assert.ok(JSON.parse(deps.requests[1].messages[1].content).previousOutput);
+  assert.equal(result.metadata.calls, 3);
+});
+
+test('整篇审核格式失败时保留已核对事实，并标记为待核对而不伪装审核通过', async () => {
+  const deps = model((_body, n) => n === 1 ? { facts: [card()] } : { keep: ['unknown'], highlights: [], conflicts: [] });
+  const result = await generateReport({ ai }, prepared(), deps);
+  assert.equal(result.metadata.quality, 'partial'); assert.equal(result.metadata.warnings[0].stage, 'review');
+  assert.match(result.markdown, /目录管理/); assert.deepEqual(result.metadata.review.highlights, []);
+});
+
+test('AI 用量包含校验失败的付费调用，避免重试绕过每日上限', () => {
+  const db = openDb(':memory:');
+  try {
+    logAiRun(db, { localDate: '2026-11-27', ok: false, inputTokens: 100, outputTokens: 50, error: '数字校验失败' });
+    logAiRun(db, { localDate: '2026-11-27', ok: true, inputTokens: 150, outputTokens: 60 });
+    assert.deepEqual(aiUsageToday(db, '2026-11-27'), { calls: 2, input: 250, output: 110 });
+  } finally { db.close(); }
 });
 test('报告独立保存、日记库编辑有冲突保护与历史，不作为下一轮素材', (t) => {
   const { db, cfg } = setup(t);

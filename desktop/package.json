@@ -1,10 +1,10 @@
 {
   "name": "miztrace-desktop",
   "productName": "MizTrace",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "MizTrace: private work journals and Markdown editor",
   "author": "MizTrace contributors",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "main.cjs",
   "scripts": {
     "prepare:runtime": "node prepare.mjs",

@@ -94,6 +94,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
+    concurrency:
+      group: desktop-release-publish
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -103,6 +106,9 @@ jobs:
           pattern: MizTrace-*
           merge-multiple: true
           path: release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Publish release downloads
         env:
           GH_TOKEN: ${{ github.token }}
@@ -119,5 +125,14 @@ jobs:
               gh release create "$RELEASE_TAG" --draft --title "MizTrace $RELEASE_TAG" --generate-notes "${extra[@]}"
             fi
           fi
+          if [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" != "true" ]]; then
+            echo "This release is already public. Keep its published files unchanged; use a new version for changes."
+            exit 0
+          fi
+          # 先上传齐全部平台及许可证，再公开。旧版本补发不能覆盖最新正式版入口。
+          cp LICENSE LICENSE-MIT LICENSING.md THIRD_PARTY_NOTICES.md release/
           gh release upload "$RELEASE_TAG" release/* --clobber
-          gh release edit "$RELEASE_TAG" --draft=false
+          PUBLISHED_TAGS="$(gh api "repos/$GH_REPO/releases?per_page=100" --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')"
+          export PUBLISHED_TAGS
+          mark_latest="$(node scripts/release-latest.mjs)"
+          gh release edit "$RELEASE_TAG" --draft=false --latest="$mark_latest"

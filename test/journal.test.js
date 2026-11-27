@@ -94,7 +94,7 @@ test('day_state overrides 三态持久化 + 兼容旧数组格式；ai_runs 账�
   assert.deepEqual(getDayState(db, '2026-09-07').overrides, { x: false, y: false }, '旧数组格式 = 全排除');
   logAiRun(db, { localDate: '2026-09-07', protocol: 'openai', model: 'm', inputTokens: 100, outputTokens: 20, latencyMs: 300, ok: true });
   logAiRun(db, { localDate: '2026-09-07', protocol: 'openai', model: 'm', ok: false, error: 'boom' });
-  assert.deepEqual(aiUsageToday(db, '2026-09-07'), { calls: 1, input: 100, output: 20 }, '失败的不计入用量');
+  assert.deepEqual(aiUsageToday(db, '2026-09-07'), { calls: 2, input: 100, output: 20 }, '失败请求也计入调用次数，缺失 token 不虚构消耗');
   db.close();
 });
 

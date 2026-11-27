@@ -51,7 +51,7 @@ export const Reports = {
       finally { if (seq === sourceRequest) loading.value = false; }
     }
     async function prepare() {
-      previewing.value = true; error.value = '';
+      previewing.value = true; error.value = ''; preview.value = null;
       try { preview.value = await api('POST', '/api/reports/preview', { ...options(), sourceIds: [...chosen.value] }); }
       catch (e) { error.value = e.message; }
       finally { previewing.value = false; }
@@ -89,6 +89,10 @@ export const Reports = {
         preview.value = null; track(job.id);
       } catch (e) { error.value = e.message; busy.value = false; }
     }
+    async function recoverLocal() {
+      await prepare();
+      if (preview.value) await generate('local');
+    }
     async function open(id) {
       try { result.value = await api('GET', `/api/reports/document?id=${encodeURIComponent(id)}`); error.value = ''; }
       catch (e) { error.value = e.message; }
@@ -119,12 +123,13 @@ export const Reports = {
     onBeforeUnmount(() => { disposed = true; clearTimeout(pollTimer); clearInterval(clockTimer); window.removeEventListener('beforeunload', guard); window.removeEventListener('miztrace-before-update', guard); });
     return { L, kind, start, end, template, templates, history, sources, warnings, chosen, loading, previewing, preview,
       busy, phase, error, result, message, sourceCollapsed, elapsed, stale, selectedDays, currentTemplate, html, aiBlocked,
-      kindName, preset, loadSources, prepare, generate, open, download, copy, edit: () => emit('edit', result.value), settings: () => emit('settings') };
+      kindName, preset, loadSources, prepare, generate, recoverLocal, open, download, copy, edit: () => emit('edit', result.value), settings: () => emit('settings') };
   },
   template: `
   <section class="reports-page">
     <header class="reports-heading"><div><span class="reports-eyebrow">MIZTRACE / REVIEW</span><h1>{{ L('把每天的进展，写成一份好报告', 'Turn daily progress into a clear report') }}</h1><p>{{ L('按项目讲清结果，让成果、问题和下一步各有位置。', 'Organize outcomes, open issues and next steps by project.') }}</p></div><span class="report-tag">{{ L('周报 / 月报', 'Weekly / Monthly') }}</span></header>
     <p v-if="error" class="library-error" role="alert">{{ error }}</p>
+    <div v-if="error && !busy && !preview && !stale && chosen.length" class="report-recovery"><button class="btn small" @click="prepare" :disabled="previewing">{{ L('重新预览并重试', 'Preview and retry') }}</button><button class="btn small" @click="recoverLocal" :disabled="previewing">{{ L('保存本地资料整理版', 'Save an offline source draft') }}</button><span class="fine">{{ L('素材选择仍保留；本地整理不调用模型。', 'Your selection is retained. Offline drafting makes no model calls.') }}</span></div>
     <div v-if="busy" class="report-progress" role="status" aria-live="polite"><span class="spin"></span><div><strong>{{ phase }}</strong><small>{{ elapsed }}s · {{ L('可以切换模块，完成后自动保存在本机。请保持应用运行。', 'You can switch modules. Keep the app running; the result saves locally.') }}</small></div></div>
     <div class="report-layout">
       <section class="report-config">
@@ -150,8 +155,9 @@ export const Reports = {
       </section>
       <section class="report-output">
         <template v-if="result">
-          <header class="report-output-tools"><strong>{{ L('已保存的报告', 'Saved report') }}</strong><span class="spacer"></span><button class="btn small" @click="edit">{{ L('编辑报告', 'Edit report') }}</button><button class="btn small" @click="copy">{{ L('复制', 'Copy') }}</button><button class="btn small" @click="download">{{ L('导出 .md', 'Export .md') }}</button></header>
-          <p class="fine report-result-meta" role="status">{{ result.metadata.source === 'local' ? L('本地资料整理版 · 未经过 AI 提炼', 'Offline template · not AI summarized') : result.metadata.model }}<template v-if="result.metadata.usage"> · {{ result.metadata.calls }} {{ L('次调用', 'calls') }} · {{ result.metadata.usage.input + result.metadata.usage.output }} tokens</template><template v-if="result.metadata.edited"> · {{ L('已手动编辑，原引句供复核参考', 'Manually edited; original citations are for review') }}</template> {{ message }}</p>
+          <header class="report-output-tools"><strong>{{ result.metadata.quality === 'partial' ? L('已保存的待核对草稿', 'Saved draft for review') : result.metadata.quality === 'fallback' ? L('已保存的资料整理版', 'Saved source draft') : L('已保存的报告', 'Saved report') }}</strong><span class="spacer"></span><button class="btn small" @click="edit">{{ L('编辑报告', 'Edit report') }}</button><button class="btn small" @click="copy">{{ L('复制', 'Copy') }}</button><button class="btn small" @click="download">{{ L('导出 .md', 'Export .md') }}</button></header>
+          <p class="fine report-result-meta" role="status">{{ result.metadata.source.startsWith('local') ? L('本地资料整理版 · 请根据原文编辑', 'Source draft · edit using the originals') : result.metadata.model }}<template v-if="result.metadata.usage"> · {{ result.metadata.calls }} {{ L('次调用', 'calls') }} · {{ result.metadata.usage.input + result.metadata.usage.output }} tokens</template><template v-if="result.metadata.edited"> · {{ L('已手动编辑，原引句供复核参考', 'Manually edited; original citations are for review') }}</template> {{ message }}</p>
+          <aside v-if="result.metadata.warnings?.length" class="report-quality" role="status"><strong>{{ result.metadata.quality === 'fallback' ? L('AI 内容未通过检查，已保留原文', 'AI output could not be validated; sources are saved') : L('部分内容未能核对，请补充后再分享', 'Some content needs review before sharing') }}</strong><p>{{ result.metadata.quality === 'fallback' ? L('这是一份可编辑的资料整理版，不是已完成的 AI 报告。你可以直接编辑，也可以重新预览后重试。', 'This is an editable source draft, not a completed AI report. Edit it or preview again to retry.') : L('通过检查的内容已保留。未能核对的模型说法未放入正文，可能存在遗漏；请对照下方检查信息和原文编辑。', 'Validated content is retained. Unvalidated claims were excluded, so review the sources for omissions.') }}</p><details><summary>{{ L('查看生成检查与所选原文', 'Generation checks and selected sources') }}</summary><ul><li v-for="(w,i) in result.metadata.warnings" :key="i">{{ w.refs?.map(r=>r.toUpperCase()).join(' / ') }} · {{ w.message }}</li></ul><details v-for="s in result.metadata.sources" :key="s.ref"><summary>[{{ s.ref.toUpperCase() }}] {{ s.date }} · {{ s.title }}</summary><pre>{{ s.content }}</pre></details></details></aside>
           <article class="md report-document" v-html="html"></article>
           <details class="report-audit" v-if="result.metadata.facts?.length"><summary>{{ L('核对事实与原文引句', 'Review facts against source quotes') }} · {{ result.metadata.facts.length }}</summary><div v-for="(f,i) in result.metadata.facts" :key="i"><strong>{{ f.project }} / {{ f.topic }}</strong><p>{{ f.text }}</p><blockquote v-for="(q,j) in f.quotes" :key="j">[{{ q.ref.toUpperCase() }}] {{ q.text }}</blockquote></div><p class="fine">{{ L('引用匹配不等于语义完全正确；分享前请核对成果状态和敏感内容。', 'Quote matching cannot guarantee semantic accuracy. Review before sharing.') }}</p></details>
         </template>

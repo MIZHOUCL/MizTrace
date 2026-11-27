@@ -24,7 +24,10 @@ test('桌面与核心版本一致，构建包包含所有主进程文件', () =>
   const root = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url)));
   const desktop = JSON.parse(fs.readFileSync(new URL('../desktop/package.json', import.meta.url)));
   assert.equal(root.version, desktop.version);
+  assert.equal(root.license, 'SEE LICENSE IN LICENSE');
+  assert.equal(desktop.license, root.license);
+  assert.equal(fs.readFileSync(new URL('../desktop/LICENSE', import.meta.url), 'utf8'), fs.readFileSync(new URL('../LICENSE', import.meta.url), 'utf8'));
   const config = require('../desktop/forge.config.cjs');
-  for (const file of ['/main.cjs', '/preload.cjs', '/updater.cjs', '/navigation.cjs', '/paths.cjs', '/package.json']) assert.equal(config.packagerConfig.ignore(file), false);
+  for (const file of ['/main.cjs', '/preload.cjs', '/updater.cjs', '/navigation.cjs', '/paths.cjs', '/package.json', '/LICENSE']) assert.equal(config.packagerConfig.ignore(file), false);
   for (const file of ['/.build/core/test.db', '/out/private.txt', '/icons/miztrace.png']) assert.equal(config.packagerConfig.ignore(file), true);
 });
