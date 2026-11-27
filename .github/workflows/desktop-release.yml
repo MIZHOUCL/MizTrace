@@ -14,6 +14,9 @@ concurrency:
 
 jobs:
   build:
+    env:
+      # 标签发行不能把未签名预览包上传到正式下载入口。
+      MIZTRACE_REQUIRE_MAC_SIGNING: ${{ startsWith(github.ref, 'refs/tags/') && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -42,6 +45,17 @@ jobs:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
           node --input-type=module -e "import fs from 'node:fs'; const p=JSON.parse(fs.readFileSync('package.json')); const d=JSON.parse(fs.readFileSync('desktop/package.json')); if(p.version!==d.version) throw Error('Version mismatch'); if(process.arch!==process.env.EXPECTED_ARCH) throw Error('Wrong runtime architecture'); if(process.env.GITHUB_REF_TYPE==='tag' && process.env.GITHUB_REF_NAME!=='v'+p.version) throw Error('Tag must match package version');"
+      - name: Check macOS signing configuration
+        if: runner.os == 'macOS'
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          node -e "const config = require('./desktop/macos-signing.cjs').macSigningConfig(); if (config.osxSign && !process.env.MAC_CERT_P12) throw Error('GitHub macOS 构建缺少 MAC_CERT_P12，请上传 Developer ID Application 证书。');"
       - name: Test core
         run: npm test
       - name: Install desktop dependencies
@@ -80,6 +94,9 @@ jobs:
         run: |
           if [[ -f "$RUNNER_TEMP/miztrace-signing.keychain-db" ]]; then security delete-keychain "$RUNNER_TEMP/miztrace-signing.keychain-db"; fi
           rm -f "$RUNNER_TEMP/miztrace-signing.p12"
+      - name: Verify macOS distribution signature and notarization
+        if: runner.os == 'macOS' && env.MIZTRACE_REQUIRE_MAC_SIGNING == '1'
+        run: node scripts/verify-macos-release.mjs
       - name: Smoke test packaged application
         run: node scripts/desktop-smoke.mjs
       - name: Normalize download names and checksums

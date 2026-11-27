@@ -24,8 +24,8 @@ child.stdout.on('data', (d) => { output = (output + d).slice(-16000); });
 child.stderr.on('data', (d) => { output = (output + d).slice(-16000); });
 const timeout = setTimeout(() => child.kill(), 45_000);
 try {
-  const code = await new Promise((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); });
-  if (code !== 0 || !fs.existsSync(resultFile)) throw new Error(`桌面冒烟测试失败 (${code})\n${output}`);
+  const { code, signal } = await new Promise((resolve, reject) => { child.once('exit', (code, signal) => resolve({ code, signal })); child.once('error', reject); });
+  if (code !== 0 || !fs.existsSync(resultFile)) throw new Error(`桌面冒烟测试失败 (${signal || code})\n${output}`);
   const result = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
   if (!result.ok || !result.sqlite || !result.saved || !result.updateDialog) throw new Error('桌面运行验证结果不完整');
   console.log('Desktop smoke passed:', JSON.stringify(result));

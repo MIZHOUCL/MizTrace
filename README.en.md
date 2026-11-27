@@ -33,6 +33,8 @@ Use **Journal folders** below the entry list to select multiple folders independ
 
 From 0.4.0, desktop builds show the version, publication date and notes before you choose to download an update. Downloaded updates apply on the next launch, or you can restart immediately. Older versions need a one-time installer upgrade. macOS in-app installation requires a Developer ID signed build. Pushing a version tag publishes installers and update feeds only after all three builds and smoke tests pass. See [desktop distribution guide](./docs/桌面打包与发布.md) for signing secrets and release steps.
 
+If macOS reports that MizTrace “is damaged and can’t be opened”, see the [macOS troubleshooting guide](./docs/桌面打包与发布.md#已下载版本提示已损坏无法打开). Earlier unsigned builds may be blocked by macOS; future public releases must pass Developer ID signing, Apple notarization and Gatekeeper verification.
+
 ## Up and running in a minute
 
 Needs Node 22.13+ (or 23.4+). No third-party packages, no `npm install`.
