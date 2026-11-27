@@ -1,7 +1,7 @@
 {
   "name": "miztrace-desktop",
   "productName": "MizTrace",
-  "version": "0.3.0-dev",
+  "version": "0.4.0",
   "description": "MizTrace: private work journals and Markdown editor",
   "author": "MizTrace contributors",
   "license": "MIT",
@@ -10,13 +10,14 @@
     "prepare:runtime": "node prepare.mjs",
     "start": "npm run prepare:runtime && electron-forge start",
     "package": "npm run prepare:runtime && electron-forge package",
-    "make": "npm run prepare:runtime && electron-forge make"
+    "make": "npm run prepare:runtime && node make.mjs"
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1"
   },
   "devDependencies": {
     "@electron-forge/cli": "8.0.1",
+    "@electron-forge/core": "8.0.1",
     "@electron-forge/maker-squirrel": "8.0.1",
     "@electron-forge/maker-zip": "8.0.1",
     "@electron-forge/maker-dmg": "8.0.1",

@@ -25,12 +25,10 @@ import { journalFromModules, allFacts, renderJournalMarkdown, stripAnnotations }
 import { buildPrompt, writeWithAI, SecretsFoundError, assertOutboundAllowed, disclosure } from '../ai/write.js';
 import { testConnection } from '../ai/provider.js';
 import { scrubSecrets } from '../ai/redact.js';
-import { detectBrowsers } from '../collect/browser.js';
-import { detectShell, installShellHook } from '../collect/shell.js';
+import { installShellHook } from '../collect/shell.js';
 import { templatesOf, pickTemplate, BUILTIN_TEMPLATES } from '../ai/templates.js';
-import { detectProviders } from '../collect/sessions.js';
-import { findWorkingCopies, svnAvailable } from '../collect/svn.js';
-import { candidateRoots } from '../setup.js';
+import { sourceDiscovery } from './source-discovery.js';
+import { normalizeLibraryRoots } from '../journal-roots.js';
 import { listLibraryDocuments, readLibraryDocument, createLibraryDocument, saveLibraryDocument, libraryHistory, journalSaveRevision } from '../journal-library.js';
 import { journalError } from '../journal-files.js';
 
@@ -39,7 +37,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 const MAX_BODY = 1024 * 1024;
 /** 传图的接口单独放宽：base64 比原图大三分之一。 */
 const MAX_IMAGE_BODY = Math.ceil(MAX_IMAGE_BYTES * 1.4) + 64 * 1024;
-export const VERSION = '0.3.0-dev';
+export const VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
 function send(res, status, body, headers = {}) {
   const isJson = typeof body !== 'string' && !Buffer.isBuffer(body);
@@ -231,6 +229,8 @@ export async function startServer(opts) {
   const db = openDb(opts.dbFile ?? dbPath());
   const flags = { json: true, 'no-files': false };
   let boundPort = 0;
+  const discovery = sourceDiscovery();
+  const sourceSettings = () => ({ templates: templatesOf(cfg), builtinTemplates: BUILTIN_TEMPLATES, template: cfg.ai?.template ?? 'summary' });
 
   /**
    * 采集结果按日期缓存两分钟。之前每个接口各自 buildDay（= 全量采集），用户点一下「生成日记」要等一次全扫，
@@ -249,6 +249,16 @@ export async function startServer(opts) {
   }
 
   const api = {
+    async 'GET /api/journals/directories'() {
+      return { directories: cfg.journalLibrary?.roots ?? [] };
+    },
+    async 'PUT /api/journals/directories'(q, body) {
+      const roots = normalizeLibraryRoots(body.directories);
+      // 先持久化成功，再让正在编辑的文档切换授权范围。
+      saveConfig({ ...cfg, journalLibrary: { roots } });
+      cfg.journalLibrary = { roots };
+      return { directories: roots };
+    },
     async 'GET /api/journals'() {
       return listLibraryDocuments(db, cfg);
     },
@@ -278,29 +288,18 @@ export async function startServer(opts) {
         dataDir: dataDir(),
         configPath: configPath(),
         disclosure: disclosure(cfg),
+        settingsSources: sourceSettings(),
       };
     },
     /** 首次引导与设置页用：本机有什么可读。不解析内容，只做存在性 / 可读性检查。 */
-    async 'GET /api/sources'() {
+    async 'GET /api/sources'(q) {
       return {
+        ...await discovery.get(cfg, q.get('refresh') === '1'),
         roots: { configured: cfg.rootsConfigured === true, current: cfg.roots },
-        candidates: candidateRoots({ sessionDirs: cfg.sessionDirs, cwd: process.cwd(), roots: cfg.rootsConfigured ? cfg.roots : [] }),
-        providers: detectProviders(cfg.sessionDirs, cfg.roots),
-        browsers: detectBrowsers().map((b) => ({ id: b.id, name: b.name, kind: b.kind, profiles: b.profiles.map((p) => ({ profile: p.profile, readable: p.readable, error: p.error })) })),
         fileScan: { enabled: cfg.fileScan?.enabled !== false, outline: cfg.fileScan?.outline !== false },
         sessions: { replies: cfg.sessions?.replies !== false },
         browser: { enabled: cfg.browser?.enabled === true, only: cfg.browser?.only ?? [], excludeDomains: cfg.browser?.excludeDomains ?? [] },
-        shell: detectShell(cfg),
-        // 工作副本的发现是纯文件系统遍历，不需要 svn 命令，所以没装 svn 也能在设置页里提示「你这儿有工作副本」
-        svn: {
-          available: svnAvailable(),
-          enabled: cfg.svn?.enabled === true,
-          remote: cfg.svn?.remote !== false,
-          workingCopies: findWorkingCopies(cfg.roots, cfg.svn?.maxDepth ?? 4),
-        },
-        templates: templatesOf(cfg),
-        builtinTemplates: BUILTIN_TEMPLATES,
-        template: cfg.ai?.template ?? 'summary',
+        ...sourceSettings(),
         disclosure: disclosure(cfg),
       };
     },
@@ -598,6 +597,7 @@ export async function startServer(opts) {
     api,
     close: () =>
       new Promise((resolve) => {
+        discovery.close();
         const done = () => {
           db.close();
           resolve();

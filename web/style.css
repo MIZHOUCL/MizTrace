@@ -154,6 +154,7 @@ small { font-size: 12px; }
   .library-actions { flex-direction: column; }
 }
 @media (max-width: 640px) {
+  .sidebar-brand > div, .sidebar-label, .sidebar-bottom { display: none; }
   .sidebar-toggle { position: static; margin-right: 10px; flex: 0 0 24px; }
   .sidebar-collapsed .module-sidebar { width: auto; padding: 10px 12px; }
   .sidebar-collapsed .app-content { margin-left: 0; }
@@ -532,3 +533,22 @@ pre.snippet { background: #16202e; color: #d7dbe2; padding: 10px 12px; border-ra
   .trace, .trace.rising, .trace.popping { animation: none; transition: none; }
   .spin { animation-duration: 1.6s; }
 }
+
+/* Independent journal pane and release dialog. */
+.journal-list-heading { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-bottom:1px solid var(--line); font-size:12px; }
+.journal-list-heading button { font-size:20px; line-height:1; min-width:28px; }
+.library-layout.list-collapsed { grid-template-columns:44px minmax(0,1fr); }
+.list-collapsed .journal-list-heading { padding:8px 4px; justify-content:center; }
+.collapsed-folders { margin:8px 4px; }
+.library-roots { list-style:none; padding:0; max-height:280px; overflow:auto; }
+.library-roots li { display:flex; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+.library-roots code { flex:1; overflow-wrap:anywhere; font-size:12px; }
+.update-dot { width:7px; height:7px; border-radius:50%; background:var(--accent,#71835b); display:inline-block; margin-left:6px; }
+.update-overlay { z-index:160; }
+.update-modal { width:min(620px,calc(100vw - 32px)); }
+.update-notes { max-height:42vh; overflow:auto; padding:18px; background:#f7f8f4; border:1px solid var(--line); border-radius:8px; margin:18px 0; }
+.update-notes h1 { font-size:21px; }
+.update-notes h2 { font-size:18px; }
+.update-progress { width:100%; margin:12px 0; accent-color:#74865c; }
+.update-preference { margin:16px 0 6px; }
+@media(max-width:640px) { .library-layout.list-collapsed { grid-template-columns:minmax(0,1fr); } .list-collapsed .journal-list { flex-direction:row; align-items:center; } .list-collapsed .journal-list-heading { border:0; } }

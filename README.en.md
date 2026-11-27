@@ -7,7 +7,17 @@
 
 By the end of a day your work is scattered everywhere: files you edited, commits you made, questions you asked an AI tool, pages you read, commands you typed. MizTrace gathers those traces on your machine and lays them out on a time board. You pop the ones you don't want, add what the computer couldn't see, and hand the rest to a model you configure to write a proper diary.
 
-Zero dependencies. No network by default. Works without an API key. macOS and Windows.
+The core has no third-party dependencies and works without an API key. macOS and Windows. Desktop build tools are managed separately in `desktop/`. Desktop builds check GitHub for releases at startup; this can be disabled, and downloads require your confirmation.
+
+## Desktop app and journal library
+
+The sidebar now includes Today and Journal library, with a collapse button that remembers your preference. Browse saved entries, generated drafts and UTF-8 Markdown files from your diary folder; search titles, dates and filenames; edit and preview Markdown; save previous versions or export `.md` files. New entries work without AI setup or an output folder. Source editing supports `Ctrl/Cmd+S`, bold/italic shortcuts and undo/redo. External file changes trigger a conflict message without overwriting your edits.
+
+The Electron app bundles its own Node runtime. Windows x64, macOS arm64 and macOS x64 builds are configured in `.github/workflows/desktop-release.yml`. Run `npm run desktop:install`, then `npm run desktop:dev` or `npm run desktop:make`. Installers appear under `desktop/out/`.
+
+Use **Journal folders** below the entry list to select multiple folders independently of the export folder in Settings. Markdown files in their subfolders appear together. Removing a folder never deletes its files. The entry list has its own collapse button. Settings opens immediately while source discovery runs in a worker and caches results.
+
+From 0.4.0, desktop builds show the version, publication date and notes before you choose to download an update. Downloaded updates apply on the next launch, or you can restart immediately. Older versions need a one-time installer upgrade. macOS in-app installation requires a Developer ID signed build. Pushing a version tag publishes installers and update feeds only after all three builds and smoke tests pass. See [desktop distribution guide](./docs/桌面打包与发布.md) for signing secrets and release steps.
 
 ## Up and running in a minute
 
@@ -89,7 +99,7 @@ The saved file is exactly this: clean Markdown. In the UI, each paragraph also c
 
 **Works for non-coders too.** A day of spreadsheets, documents and meetings still yields a diary from document outlines, browsing history and your notes.
 
-**Privacy is the default, not an option.** Reads only the folders you pick, never file contents or diffs; browser and shell are off by default; data lives in a local SQLite; the only outbound request is the one you confirm. Managed machines can disable outbound traffic permanently. One-click Chinese / English UI.
+**Records stay on your machine.** Trace collection reads metadata and document outlines in selected folders. The journal library reads Markdown contents from the folders you select for editing. Browser and shell collection are off by default. AI sends require confirmation. Desktop release checks contact GitHub without sending journal contents and can be disabled; update downloads require a click. Managed machines can disable outbound traffic. One-click Chinese / English UI.
 
 ## What it reads
 
@@ -190,7 +200,7 @@ It does not make things up: a skill that is not in the profile does not appear o
 - **Quiet collection**: a menu-bar / tray resident that collects every evening and reminds you to spend two minutes on it.
 - **Multi-machine merge**: work laptop and home machine into the same day.
 
-What will not change: everything runs locally; the only outbound request is the one you confirmed; every sentence links back to evidence. Want a module first, or want to build one? Say so in an issue.
+The core continues to run locally and AI writing requires confirmation. Desktop release checks are separately controlled in the update dialog. Want a module first, or want to build one? Say so in an issue.
 
 ## Community
 [linux.do](https://linux.do/) - A thriving developer community.

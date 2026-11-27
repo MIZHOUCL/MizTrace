@@ -2,11 +2,13 @@ import { api } from '../lib/api.js';
 import { renderMd } from '../lib/md.js';
 import { lang } from '../lib/i18n.js';
 import { formatSelection } from '../lib/editor.js';
+import { JournalDirectories } from './journal-directories.js';
 
 const { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } = window.Vue;
 export const JournalLibrary = {
-  props: { active: Boolean, today: String, directory: String },
-  emits: ['settings', 'saved'],
+  components: { JournalDirectories },
+  props: { active: Boolean, today: String },
+  emits: ['saved'],
   setup(props, { expose, emit }) {
     const L = (zh, en) => lang.value === 'en' ? en : zh;
     const documents = ref([]), warnings = ref([]), search = ref(''), filter = ref('all');
@@ -14,6 +16,19 @@ export const JournalLibrary = {
     const loading = ref(false), opening = ref(false), saving = ref(false), error = ref(''), message = ref('');
     const mode = ref('split'), newDate = ref(props.today), showCreate = ref(false), history = ref(null);
     const conflict = ref(false), historyBusy = ref(false);
+    const directories = ref([]), managing = ref(false);
+    const listCollapsed = ref(localStorage.getItem('mt_journal_list_collapsed') === '1');
+    function toggleList() {
+      listCollapsed.value = !listCollapsed.value;
+      localStorage.setItem('mt_journal_list_collapsed', listCollapsed.value ? '1' : '0');
+    }
+    async function directoriesChanged(roots) {
+      directories.value = roots;
+      await refresh();
+      if (selected.value?.kind === 'file' && !documents.value.some((d) => d.id === selected.value.id) && !dirty.value) {
+        selected.value = null; text.value = ''; savedText.value = '';
+      }
+    }
     let request = 0, listRequest = 0, previewTimer;
     const previewText = ref('');
     const undo = [], redo = [];
@@ -36,6 +51,7 @@ export const JournalLibrary = {
         const result = await api('GET', '/api/journals');
         if (seq !== listRequest) return;
         documents.value = result.documents; warnings.value = result.warnings;
+        directories.value = result.directories;
       } catch (e) { if (seq === listRequest) error.value = e.message; }
       finally { if (seq === listRequest) loading.value = false; }
     }
@@ -156,12 +172,12 @@ export const JournalLibrary = {
     }
     watch(text, (v) => { clearTimeout(previewTimer); previewTimer = setTimeout(() => { previewText.value = v; }, 180); });
     watch(() => props.active, (v) => { if (v) refresh(); });
-    watch(() => props.directory, () => refresh());
     watch(() => props.today, (v) => { if (!newDate.value) newDate.value = v; });
-    onMounted(() => { if (props.active) refresh(); document.addEventListener('keydown', keys); window.addEventListener('beforeunload', beforeUnload); });
-    onBeforeUnmount(() => { clearTimeout(previewTimer); request++; listRequest++; document.removeEventListener('keydown', keys); window.removeEventListener('beforeunload', beforeUnload); });
+    onMounted(() => { if (props.active) refresh(); document.addEventListener('keydown', keys); window.addEventListener('beforeunload', beforeUnload); window.addEventListener('miztrace-before-update', beforeUnload); });
+    onBeforeUnmount(() => { clearTimeout(previewTimer); request++; listRequest++; document.removeEventListener('keydown', keys); window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('miztrace-before-update', beforeUnload); });
     expose({ openSaved, refresh });
     return { L, documents, warnings, search, filter, filtered, selected, text, editor, loading, opening, saving, error, message,
+      directories, managing, listCollapsed, toggleList, directoriesChanged, canChangeDirectories: () => !dirty.value && !saving.value && !opening.value,
       mode, newDate, showCreate, history, conflict, historyBusy, dirty, html, charCount, kindName, timeLabel,
       refresh, openDocument, create, save, download, input, format, undoEdit, showHistory, restore, onPreviewClick };
   },
@@ -173,17 +189,22 @@ export const JournalLibrary = {
     </header>
     <form v-if="showCreate" class="create-journal" @submit.prevent="create"><label>{{ L('日记日期', 'Date') }} <input type="date" v-model="newDate" required></label><button class="btn primary" :disabled="opening || saving">{{ L('创建 / 打开', 'Create / Open') }}</button><span class="fine">{{ L('同一天已有记录时直接打开。新日记先保存在本机。', 'Existing dates open directly. New entries are stored locally.') }}</span></form>
     <p v-for="warning in warnings" :key="warning" class="library-notice">{{ warning }}</p>
-    <div class="library-layout">
+    <journal-directories v-if="managing" :directories="directories" :can-change="canChangeDirectories" @close="managing=false" @changed="directoriesChanged"></journal-directories>
+    <div class="library-layout" :class="{'list-collapsed':listCollapsed}">
       <aside class="journal-list" :aria-label="L('历史日记', 'Past entries')">
+        <div class="journal-list-heading"><strong v-if="!listCollapsed">{{ L('全部记录', 'All entries') }}</strong><button class="btn small quiet" @click="toggleList" :aria-expanded="!listCollapsed" :aria-label="listCollapsed ? L('展开日记列表', 'Expand journal list') : L('收起日记列表', 'Collapse journal list')" :title="listCollapsed ? L('展开日记列表', 'Expand journal list') : L('收起日记列表', 'Collapse journal list')">{{ listCollapsed ? '›' : '‹' }}</button></div>
+        <button v-if="listCollapsed" class="btn small quiet collapsed-folders" @click="managing=true" :title="L('管理日记目录', 'Journal folders')" :aria-label="L('管理日记目录', 'Journal folders')">▤</button>
+        <template v-if="!listCollapsed">
         <div class="journal-search"><input type="search" v-model="search" :placeholder="L('搜索标题、日期或文件名…', 'Search title, date or filename…')" :aria-label="L('搜索日记', 'Search journals')"><select v-model="filter" :aria-label="L('日记类型', 'Entry type')"><option value="all">{{ L('全部记录', 'All entries') }}</option><option value="file">{{ kindName('file') }}</option><option value="journal">{{ kindName('journal') }}</option><option value="draft">{{ kindName('draft') }}</option></select></div>
         <div class="journal-entries" :aria-busy="loading">
           <p class="fine list-empty" v-if="loading && !documents.length">{{ L('正在读取日记…', 'Loading entries…') }}</p>
-          <p class="fine list-empty" v-else-if="!filtered.length">{{ documents.length ? L('没有匹配的记录。', 'No matching entries.') : L('这里还没有日记。新建第一篇，或在设置中选择已有的日记目录。', 'Create your first entry or choose an existing diary folder in Settings.') }}</p>
+          <p class="fine list-empty" v-else-if="!filtered.length">{{ documents.length ? L('没有匹配的记录。', 'No matching entries.') : L('这里还没有日记。新建第一篇，或点击下面的「管理日记目录」选择文件夹。', 'Create an entry or choose folders below.') }}</p>
           <button v-for="doc in filtered" :key="doc.id" class="journal-entry" :class="{selected: selected?.id === doc.id}" :aria-current="selected?.id === doc.id ? 'true' : undefined" :disabled="saving || opening" @click="openDocument(doc.id)">
             <span class="entry-date">{{ doc.date || L('未标注日期', 'Undated') }}<i v-if="selected?.id === doc.id && dirty" :title="L('未保存', 'Unsaved')"></i></span><strong>{{ doc.title }}</strong><span class="entry-source">{{ kindName(doc.kind) }}</span><small v-if="doc.relativePath">{{ doc.relativePath }}</small>
           </button>
         </div>
-        <footer class="journal-list-footer"><span class="fine">{{ L('目录中的 .md 文件 + 本地日记与草稿', '.md files + local entries and drafts') }}</span><button class="btn small quiet" @click="$emit('settings')">{{ L('管理日记目录', 'Diary folder settings') }} ↗</button></footer>
+        <footer class="journal-list-footer"><span class="fine">{{ directories.length }} {{ L('个目录 · Markdown + 本地记录', 'folders · Markdown + local entries') }}</span><button class="btn small quiet" @click="managing=true">{{ L('管理日记目录', 'Journal folders') }} ↗</button></footer>
+        </template>
       </aside>
       <section class="journal-workspace" :aria-busy="opening">
         <p v-if="error" class="library-error" role="alert">{{ error }}</p>

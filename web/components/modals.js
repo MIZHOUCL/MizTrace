@@ -89,13 +89,17 @@ export const PreviewModal = {
 export const SettingsModal = {
   name: 'SettingsModal',
   components: { FolderPicker },
-  props: { config: Object, sources: Object, home: String, platform: String, configPath: String, testing: Boolean, testResult: Object, saving: Boolean },
-  emits: ['close', 'save', 'test', 'install-shell'],
+  props: { config: Object, sources: Object, sourcesLoading: Boolean, sourcesError: String, home: String, platform: String, configPath: String, testing: Boolean, testResult: Object, saving: Boolean },
+  emits: ['close', 'save', 'test', 'install-shell', 'refresh-sources'],
   setup(props, { emit }) {
     useEscape(() => emit('close'));
     const c = props.config || {};
     const shell = computed(() => props.sources?.shell ?? null);
     const showSnippet = ref('');
+    const testSeconds = ref(0);
+    let testTimer;
+    watch(() => props.testing, (busy) => { clearInterval(testTimer); testSeconds.value = 0; if (busy) testTimer = setInterval(() => testSeconds.value++, 1000); });
+    onBeforeUnmount(() => clearInterval(testTimer));
     const picking = ref(''); // 'roots' | 'out' | ''
     function pickedDir(p) {
       const which = picking.value;
@@ -108,8 +112,10 @@ export const SettingsModal = {
         f.roots = lines.join('\n');
       }
     }
-    const templates = ref((props.sources?.templates ?? []).map((t) => ({ ...t })));
     const builtin = props.sources?.builtinTemplates ?? [];
+    const templateMap = new Map(builtin.map((t) => [t.id, { ...t, builtin: true }]));
+    for (const t of c.ai?.templates ?? []) templateMap.set(t.id, { ...t, builtin: templateMap.has(t.id) });
+    const templates = ref([...templateMap.values()]);
     const editingTpl = ref(false); // 模板文字默认收起：四个模板全铺开太长，下拉选、要改再展开
     const currentTpl = computed(() => templates.value.find((t) => t.id === f.ai.template) ?? templates.value[0] ?? null);
     function resetTemplate(t) {
@@ -156,6 +162,9 @@ export const SettingsModal = {
       ai: { ...(c.ai || {}), apiKey: '', template: c.ai?.template || 'summary' },
     });
     const readableBrowsers = computed(() => (props.sources?.browsers ?? []).filter((b) => b.profiles.some((p) => p.readable)));
+    watch(() => props.sources?.browsers, (browsers) => {
+      for (const b of browsers ?? []) if (!(b.id in f.browserOnly)) f.browserOnly[b.id] = !c.browser?.only?.length || c.browser.only.includes(b.id);
+    });
     const deniedBrowsers = computed(() => (props.sources?.browsers ?? []).filter((b) => !b.profiles.some((p) => p.readable)));
     const providers = computed(() => props.sources?.providers ?? []);
     const svnCount = computed(() => (props.sources?.svn?.workingCopies ?? []).length);
@@ -189,7 +198,7 @@ export const SettingsModal = {
         authorFilter: f.authorFilter,
         fileScan: { enabled: f.files, outline: f.outline },
         sessions: { replies: f.replies },
-        browser: { enabled: f.browserOn && only.length > 0, only, excludeDomains: f.excludeDomains },
+        browser: { enabled: f.browserOn, only: props.sources?.browsers ? only : (c.browser?.only ?? []), excludeDomains: f.excludeDomains },
         shell: { enabled: f.shellOn },
         svn: { enabled: f.svnOn, remote: f.svnRemote },
         ai: aiPayload(),
@@ -197,12 +206,15 @@ export const SettingsModal = {
       };
     }
     const keyPlaceholder = computed(() => (c.ai?.hasApiKey ? L(`已保存（${c.ai.apiKey}），留空不改`, `Saved (${c.ai.apiKey}); leave empty to keep`) : 'sk-…'));
-    return { f, shell, showSnippet, picking, pickedDir, templates, editingTpl, currentTpl, resetTemplate, addTemplate, removeTemplate, copySnippet, readableBrowsers, deniedBrowsers, providers, svnCount, svnReady, keyPlaceholder, t, L, save: () => emit('save', payload()), test: () => emit('test', aiPayload()), installShell: () => emit('install-shell', []) };
+    return { f, shell, showSnippet, testSeconds, picking, pickedDir, templates, editingTpl, currentTpl, resetTemplate, addTemplate, removeTemplate, copySnippet, readableBrowsers, deniedBrowsers, providers, svnCount, svnReady, keyPlaceholder, t, L, save: () => emit('save', payload()), test: () => emit('test', aiPayload()), installShell: () => emit('install-shell', []) };
   },
   template: `
 <div class="overlay" @click.self="$emit('close')" role="dialog" aria-modal="true" aria-labelledby="st-title">
   <div class="modal wide">
     <h2 id="st-title">{{ t('settings') }}</h2>
+    <p class="fine" role="status" v-if="sourcesLoading">{{ L('正在后台探测来源，可直接修改设置…', 'Detecting sources in the background. You can edit settings now…') }}</p>
+    <p class="notice bad" role="alert" v-if="sourcesError">{{ sourcesError }}</p>
+    <button class="btn small quiet" @click="$emit('refresh-sources')" :disabled="sourcesLoading">{{ L('重新探测来源', 'Detect sources again') }}</button>
 
     <h3>{{ L('去哪里找痕迹', 'Where to look for traces') }}</h3>
     <div class="form">
@@ -295,6 +307,7 @@ export const SettingsModal = {
       <label></label>
       <div class="inline-fields">
         <button class="btn" @click="test" :disabled="testing">{{ testing ? L('测试中…', 'Testing…') : L('测试连接', 'Test connection') }}</button>
+        <small v-if="testing" role="status">{{ L('等待模型服务响应', 'Waiting for the model service') }} · {{ testSeconds }}s / 15s</small>
         <span v-if="testResult" class="result" :class="testResult.ok ? 'ok' : 'bad'">{{ testResult.ok ? (L('连通：', 'OK: ') + testResult.model + ', ' + testResult.latencyMs + ' ms' + (testResult.reasoning ? L('（带思考的模型：「最大输出」建议 16000 以上）', ' (reasoning model: set Max output to 16000 or more)') : '')) : (L('失败：', 'Failed: ') + testResult.error) }}</span>
       </div>
     </div>

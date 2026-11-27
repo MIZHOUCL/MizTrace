@@ -4,6 +4,7 @@ import path from 'node:path';
 import { getDayState, setDraft } from './db.js';
 import { stripAnnotations } from './journal.js';
 import { snapshotJournal } from './journal-history.js';
+import { libraryRoots } from './journal-roots.js';
 import { MAX_JOURNAL_BYTES, digest, journalError, journalRoot, checkedJournalPath, readJournalFile, replaceJournalFile } from './journal-files.js';
 
 const MAX_ENTRIES = 2000;
@@ -30,8 +31,8 @@ function fromRow(row, kind) {
 }
 
 function fileDocument(cfg, id) {
-  const root = journalRoot(cfg);
   const parts = String(id).split(':');
+  const root = libraryRoots(cfg).find((p) => digest(p).slice(0, 24) === parts[1]);
   if (!root || parts.length !== 3 || parts[1] !== digest(root).slice(0, 24)) {
     throw journalError('日记目录已变更，请刷新列表后重新打开', 409, 'ROOT_CHANGED');
   }
@@ -41,7 +42,7 @@ function fileDocument(cfg, id) {
   const data = readJournalFile(file);
   return { id, kind: 'file', date: path.basename(relative).match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '',
     title: titleOf(data.markdown, path.basename(relative, path.extname(relative))),
-    path: file, relativePath: relative, ...data, reviewRequired: true };
+    path: file, root, relativePath: relative, ...data, reviewRequired: true };
 }
 
 export function readLibraryDocument(db, cfg, id) {
@@ -60,11 +61,9 @@ export function listLibraryDocuments(db, cfg) {
   const warnings = [];
   const documents = [];
   const filesByPath = new Map();
-  let root = null;
-  try { root = journalRoot(cfg); } catch (e) { warnings.push(e.message); }
-  if (cfg.out && !root) warnings.push('日记目录尚不存在；本地保存的日记仍可查看。');
+  const roots = libraryRoots(cfg, warnings);
   let visited = 0, bytes = 0, truncated = false, skipped = 0;
-  function walk(dir, prefix = '', depth = 0) {
+  function walk(root, dir, prefix = '', depth = 0) {
     if (depth > 8) { truncated = true; return; }
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { skipped++; return; }
@@ -72,7 +71,7 @@ export function listLibraryDocuments(db, cfg) {
       if (++visited > 10_000 || documents.length >= MAX_ENTRIES || bytes > 32 * 1024 * 1024) { truncated = true; return; }
       if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.isSymbolicLink()) continue;
       const relative = prefix + entry.name;
-      if (entry.isDirectory()) walk(path.join(dir, entry.name), relative + '/', depth + 1);
+      if (entry.isDirectory()) walk(root, path.join(dir, entry.name), relative + '/', depth + 1);
       else if (entry.isFile() && /\.md$/i.test(entry.name)) {
         try {
           const doc = fileDocument(cfg, fileId(root, relative));
@@ -83,7 +82,7 @@ export function listLibraryDocuments(db, cfg) {
       }
     }
   }
-  if (root) walk(root);
+  for (const root of roots) walk(root, root);
   const journals = db.prepare('SELECT * FROM journals ORDER BY local_date DESC LIMIT ?').all(MAX_ENTRIES + 1);
   const drafts = db.prepare('SELECT * FROM day_state WHERE draft_md IS NOT NULL ORDER BY local_date DESC LIMIT ?').all(MAX_ENTRIES + 1);
   const savedByDate = new Map();
@@ -102,15 +101,15 @@ export function listLibraryDocuments(db, cfg) {
   if (truncated || journals.length > MAX_ENTRIES || drafts.length > MAX_ENTRIES) warnings.push('列表达到扫描上限（每类 2000 篇、文件 32 MiB、8 层目录）；请缩小日记目录范围。');
   if (skipped) warnings.push(`${skipped} 个文件或目录无法读取，可能超出 512 KiB、不是 UTF-8 或没有访问权限。`);
   documents.sort((a, b) => (b.date || b.updatedAt || '').localeCompare(a.date || a.updatedAt || '') || b.updatedAt.localeCompare(a.updatedAt));
-  return { documents, warnings, directory: cfg.out || null };
+  return { documents, warnings, directories: cfg.journalLibrary?.roots ?? [] };
 }
 
 export function createLibraryDocument(db, cfg, date) {
   validateJournalDate(date);
   const existing = db.prepare('SELECT * FROM journals WHERE local_date = ?').get(date);
   if (existing) {
-    const root = journalRoot(cfg);
-    if (root && existing.out_path) {
+    for (const root of libraryRoots(cfg)) {
+      if (!existing.out_path) break;
       const relative = path.relative(root, existing.out_path).split(path.sep).join('/');
       try {
         const file = fileDocument(cfg, fileId(root, relative));
@@ -120,8 +119,9 @@ export function createLibraryDocument(db, cfg, date) {
     return { document: fromRow(existing, 'journal'), existing: true };
   }
   // 当天已有独立文件或草稿时直接打开，避免新建按钮意外覆盖已有内容。
-  const root = journalRoot(cfg);
-  if (root && fs.existsSync(path.join(root, `${date}.md`))) return { document: fileDocument(cfg, fileId(root, `${date}.md`)), existing: true };
+  for (const root of libraryRoots(cfg)) {
+    if (fs.existsSync(path.join(root, `${date}.md`))) return { document: fileDocument(cfg, fileId(root, `${date}.md`)), existing: true };
+  }
   const draft = db.prepare('SELECT * FROM day_state WHERE local_date = ? AND draft_md IS NOT NULL').get(date);
   if (draft) return { document: fromRow(draft, 'draft'), existing: true };
   const now = new Date().toISOString();

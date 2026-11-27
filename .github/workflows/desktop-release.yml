@@ -46,8 +46,40 @@ jobs:
         run: npm test
       - name: Install desktop dependencies
         run: npm ci --prefix desktop
+      - name: Import macOS Developer ID certificate
+        if: runner.os == 'macOS'
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        shell: bash
+        run: |
+          if [[ -z "$MAC_CERT_P12" ]]; then
+            echo "No Developer ID configured: building an unsigned preview without in-app installation support."
+            exit 0
+          fi
+          KEYCHAIN_PATH="$RUNNER_TEMP/miztrace-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          printf '%s' "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/miztrace-signing.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/miztrace-signing.p12" -P "$MAC_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
       - name: Build installers
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run desktop:make
+      - name: Remove signing keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/miztrace-signing.keychain-db" ]]; then security delete-keychain "$RUNNER_TEMP/miztrace-signing.keychain-db"; fi
+          rm -f "$RUNNER_TEMP/miztrace-signing.p12"
       - name: Smoke test packaged application
         run: node scripts/desktop-smoke.mjs
       - name: Normalize download names and checksums
@@ -65,6 +97,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: MizTrace-*
@@ -80,6 +113,11 @@ jobs:
           extra=()
           if [[ "$RELEASE_TAG" == *-* ]]; then extra+=(--prerelease); fi
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --title "MizTrace $RELEASE_TAG" --generate-notes "${extra[@]}"
+            if [[ -f "releases/$RELEASE_TAG.md" ]]; then
+              gh release create "$RELEASE_TAG" --draft --title "MizTrace $RELEASE_TAG" --notes-file "releases/$RELEASE_TAG.md" "${extra[@]}"
+            else
+              gh release create "$RELEASE_TAG" --draft --title "MizTrace $RELEASE_TAG" --generate-notes "${extra[@]}"
+            fi
           fi
           gh release upload "$RELEASE_TAG" release/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

@@ -11,7 +11,7 @@
 import { TOKEN } from '../lib/api.js';
 import { t } from '../lib/i18n.js';
 
-const { ref, watch, computed } = window.Vue;
+const { ref, watch, computed, onMounted, onBeforeUnmount } = window.Vue;
 
 export const NotesBox = {
   name: 'NotesBox',
@@ -20,6 +20,9 @@ export const NotesBox = {
   setup(props, { emit }) {
     // 正在写的那条。只有输入框里的字 + 还没归属到某条手记的图；保存成功后服务端把图认领走，这里自然回到空。
     const text = ref('');
+    const guardUpdate = (e) => { if (text.value.trim() || props.saving) e.preventDefault(); };
+    onMounted(() => window.addEventListener('miztrace-before-update', guardUpdate));
+    onBeforeUnmount(() => window.removeEventListener('miztrace-before-update', guardUpdate));
     // 默认就是展开的：之前折成一行小字，用户说「别人都看不到，意识不到还可以自己填写」
     const open = ref(true);
     const dragging = ref(false);

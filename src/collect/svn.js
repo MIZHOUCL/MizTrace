@@ -129,7 +129,7 @@ function unwrap(xml, name) {
 
 export function svnAvailable() {
   try {
-    execFileSync('svn', ['--version', '--quiet'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    execFileSync('svn', ['--version', '--quiet'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000, windowsHide: true });
     return true;
   } catch {
     return false;

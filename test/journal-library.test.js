@@ -7,16 +7,44 @@ import { openDb, setDraft, setHint } from '../src/db.js';
 import { saveJournal } from '../src/day.js';
 import { listLibraryDocuments, readLibraryDocument, createLibraryDocument, saveLibraryDocument, libraryHistory, journalSaveRevision } from '../src/journal-library.js';
 import { checkedJournalPath, MAX_JOURNAL_BYTES } from '../src/journal-files.js';
+import { normalizeLibraryRoots } from '../src/journal-roots.js';
 
 function setup(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-library-'));
   const db = openDb(':memory:');
   const cfg = { out: path.join(dir, 'diary') };
   fs.mkdirSync(cfg.out);
+  cfg.journalLibrary = { roots: [fs.realpathSync(cfg.out)] };
   t.after(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   return { db, cfg, dir };
 }
 const date = '2026-11-27';
+test('日记库目录独立于 out：多目录、嵌套去重、移除撤销访问且保留文件', (t) => {
+  const { db, cfg, dir } = setup(t);
+  const a = path.join(dir, 'notes'), b = path.join(dir, 'archive');
+  fs.mkdirSync(a); fs.mkdirSync(b); fs.mkdirSync(path.join(a, 'nested'));
+  fs.writeFileSync(path.join(a, 'hello.md'), '# 同名文件 A');
+  fs.writeFileSync(path.join(b, 'hello.md'), '# 同名文件 B');
+  fs.writeFileSync(path.join(a, 'nested', 'deep.md'), '# 嵌套文件');
+  fs.writeFileSync(path.join(cfg.out, 'not-library.md'), '# 仅导出目录');
+  cfg.journalLibrary.roots = normalizeLibraryRoots([a, a, path.join(a, 'nested'), b]);
+  assert.equal(cfg.journalLibrary.roots.length, 2);
+  let docs = listLibraryDocuments(db, cfg).documents;
+  assert.equal(docs.length, 3);
+  assert.equal(new Set(docs.map((d) => d.id)).size, 3);
+  const removed = docs.find((d) => d.title === '同名文件 A');
+  const original = readLibraryDocument(db, cfg, removed.id);
+  cfg.out = b;
+  assert.equal(readLibraryDocument(db, cfg, removed.id).markdown, original.markdown);
+  cfg.journalLibrary.roots = normalizeLibraryRoots([b]);
+  assert.throws(() => saveLibraryDocument(db, cfg, { ...original, markdown: '# 修改' }), { status: 409 });
+  assert.equal(fs.readFileSync(original.path, 'utf8'), original.markdown);
+  assert.equal(listLibraryDocuments(db, cfg).documents.length, 1);
+  assert.throws(() => normalizeLibraryRoots(['relative']), { status: 400 });
+  assert.throws(() => normalizeLibraryRoots([path.join(a, 'missing')]), { status: 400 });
+  assert.throws(() => normalizeLibraryRoots([path.join(a, 'hello.md')]), { status: 400 });
+  assert.equal(listLibraryDocuments(db, { out: b }).documents.length, 0);
+});
 test('日记库合并已保存文件、嵌套文件、本地日记和草稿，保留外部不同版本', (t) => {
   const { db, cfg } = setup(t);
   const file = saveJournal(db, cfg, date, '# 今日记录');

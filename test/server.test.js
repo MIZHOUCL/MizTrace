@@ -6,6 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { startServer } from '../src/server/index.js';
 import { DEFAULTS } from '../src/config.js';
+import { loadConfig } from '../src/config.js';
 
 /** 有些沙箱禁止 listen（EPERM）。探测一次，不行就跳过这组测试而不是误报失败。 */
 const canListen = await new Promise((resolve) => {
@@ -14,6 +15,32 @@ const canListen = await new Promise((resolve) => {
   s.listen(0, '127.0.0.1', () => s.close(() => resolve(true)));
 });
 const SKIP = canListen ? false : '当前环境不允许监听 127.0.0.1（沙箱 EPERM），server 测试在 CI 上运行';
+
+test('日记目录 API 持久化多个独立目录、拒绝非法路径，导出设置互不影响', { skip: SKIP }, async () => {
+  const { srv, call, dir, cfg } = await boot();
+  try {
+    const folders = ['one', 'two'].map((p) => path.join(dir, p));
+    for (const p of folders) { fs.mkdirSync(p); fs.writeFileSync(path.join(p, 'same.md'), '# Markdown'); }
+    const output = cfg.out;
+    const denied = await fetch(`http://127.0.0.1:${srv.port}/api/journals/directories`, { method: 'PUT', body: JSON.stringify({ directories: folders }) });
+    assert.equal(denied.status, 401);
+    assert.equal((await call('PUT', '/api/journals/directories', { directories: folders })).status, 200);
+    assert.equal(cfg.out, output);
+    assert.deepEqual(loadConfig().journalLibrary.roots, folders.map((p) => fs.realpathSync(p)));
+    assert.equal((await (await call('GET', '/api/journals')).json()).documents.length, 2);
+    await call('PUT', '/api/config', { out: path.join(dir, 'new-export') });
+    assert.equal((await (await call('GET', '/api/journals')).json()).documents.length, 2);
+    assert.equal((await call('PUT', '/api/journals/directories', { directories: ['relative'] })).status, 400);
+    assert.equal(cfg.journalLibrary.roots.length, 2);
+    const state = await (await call('GET', '/api/state')).json();
+    assert.ok(state.settingsSources.templates.length > 0);
+    // 真实 Worker 的结果可被缓存，同时主服务仍能响应其他请求。
+    const discovery = call('GET', '/api/sources');
+    assert.equal((await call('GET', '/api/state')).status, 200);
+    assert.equal((await discovery).status, 200);
+    assert.ok((await (await call('GET', '/api/sources')).json()).candidates);
+  } finally { await srv.close(); fs.rmSync(dir, { recursive: true, force: true }); delete process.env.MIZTRACE_DATA_DIR; }
+});
 
 async function boot(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-srv-'));

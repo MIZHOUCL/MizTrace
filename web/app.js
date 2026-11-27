@@ -13,11 +13,12 @@ import { PreviewModal, SettingsModal } from './components/modals.js';
 import { ListView } from './components/listview.js';
 import { NotesBox } from './components/notes.js';
 import { JournalLibrary } from './components/journals.js';
+import { AppUpdates } from './components/app-updates.js';
 
 const { createApp, ref, computed, reactive, watch, onMounted, nextTick } = window.Vue;
 
 createApp({
-  components: { DayBoard, Drawer, SetupPanel, PreviewModal, SettingsModal, ListView, NotesBox, JournalLibrary },
+  components: { DayBoard, Drawer, SetupPanel, PreviewModal, SettingsModal, ListView, NotesBox, JournalLibrary, AppUpdates },
   setup() {
     const state = reactive({ today: '', tz: '', utcOffset: '', config: null, rootsConfigured: false, setupDone: false, platform: '', home: '', dataDir: '', configPath: '', disclosure: null });
     const date = ref('');
@@ -58,10 +59,15 @@ createApp({
     const preview = ref(null);
     const showSettings = ref(false);
     const sources = ref(null);
+    const sourcesLoading = ref(false), sourcesError = ref('');
+    let sourcesPromise;
     const testResult = ref(null);
     const testing = ref(false);
     const saving = ref(false);
     const hintSaving = ref(false);
+    window.addEventListener('miztrace-before-update', (e) => {
+      if (writing.value || saving.value || notesSaving.value || hintSaving.value || testing.value || showSettings.value) e.preventDefault();
+    });
     const setupNeeded = computed(() => state.config && !state.setupDone && !state.rootsConfigured);
 
     const selectedCount = computed(() => modules.value.filter((m) => m.selected).length);
@@ -83,10 +89,17 @@ createApp({
     async function loadState() {
       const s = await api('GET', '/api/state');
       Object.assign(state, s);
+      if (!sources.value) sources.value = s.settingsSources;
       if (!date.value) date.value = s.today;
     }
-    async function loadSources() {
-      sources.value = await api('GET', '/api/sources');
+    async function loadSources(refresh = false) {
+      if (sourcesPromise) return sourcesPromise;
+      sourcesLoading.value = true; sourcesError.value = '';
+      sourcesPromise = api('GET', `/api/sources${refresh ? '?refresh=1' : ''}`)
+        .then((value) => { sources.value = value; })
+        .catch((e) => { sourcesError.value = e.message; })
+        .finally(() => { sourcesLoading.value = false; sourcesPromise = null; });
+      return sourcesPromise;
     }
     /** refresh = 重新采集；不带就复用服务端两分钟内的采集结果（保存手记、戳泡泡之后不必再扫一遍）。 */
     async function loadDay({ refresh = false } = {}) {
@@ -351,12 +364,8 @@ createApp({
     }
     async function openSettings() {
       testResult.value = null;
-      try {
-        await loadSources();
-        showSettings.value = true;
-      } catch (e) {
-        error.value = e.message;
-      }
+      showSettings.value = true;
+      loadSources();
     }
     async function testAi(ai) {
       testing.value = true;
@@ -428,12 +437,12 @@ createApp({
       }
     });
     watch(setupNeeded, (v) => {
-      if (v && !sources.value) loadSources().catch((e) => (error.value = e.message));
+      if (v && !sources.value?.candidates) loadSources();
     });
 
     return {
       page, library, L, switchPage, sidebarCollapsed, toggleSidebar,
-      state, date, loading, error, modules, notes, notesSaving, meta, view, drawer, popping, risen, toast, draft, aiDraft, rulesDraft, writing, rulesBusy, previewing, preview, showSettings, sources, testResult, testing, saving, hintSaving, setupNeeded,
+      state, date, loading, error, modules, notes, notesSaving, meta, view, drawer, popping, risen, toast, draft, aiDraft, rulesDraft, writing, rulesBusy, previewing, preview, showSettings, sources, sourcesLoading, sourcesError, loadSources, testResult, testing, saving, hintSaving, setupNeeded,
       selectedCount, headline, subline, legend, dateLabel, aiReady,
       renderMd, catVar, CAT_WORD, num, t, lang, LANGS, langMenu, pickLang,
       showAi: () => (draft.value = aiDraft.value),
@@ -489,15 +498,17 @@ createApp({
         <li v-for="l in LANGS" :key="l.id" role="option" :aria-selected="l.id === lang" :class="{on: l.id === lang}" @click="pickLang(l.id)"><b>{{ l.flag }}</b> {{ l.label }}<span v-if="l.id === lang">✓</span></li>
       </ul>
     </span>
-    <button class="btn" @click="openSettings">{{ t('settings') }}</button>
+    <button class="btn" @click="openSettings" :disabled="!state.config">{{ t('settings') }}</button>
+    <app-updates></app-updates>
   </header>
 
   <p v-if="error" class="banner" role="alert">{{ error }} <button class="btn small quiet" @click="error=''">{{ t('close') }}</button></p>
 
-  <journal-library v-if="state.config" v-show="page==='journals'" ref="library" :active="page==='journals'" :today="state.today" :directory="state.config.out" @settings="openSettings"></journal-library>
+  <journal-library v-if="state.config" v-show="page==='journals'" ref="library" :active="page==='journals'" :today="state.today"></journal-library>
   <div v-show="page==='today'">
-  <main v-if="setupNeeded && sources">
-    <setup-panel :sources="sources" :home="state.home" :platform="state.platform" @done="finishSetup" @skip="skipSetup" @lang="pickLang"></setup-panel>
+  <main v-if="setupNeeded">
+    <setup-panel v-if="sources?.candidates" :sources="sources" :home="state.home" :platform="state.platform" @done="finishSetup" @skip="skipSetup" @lang="pickLang"></setup-panel>
+    <div v-else class="empty"><p>{{ sourcesError || L('正在查找本机来源…你也可以先打开日记库。', 'Finding local sources… You can open the journal library now.') }}</p><button class="btn" @click="loadSources(true)" :disabled="sourcesLoading">{{ L('重新探测', 'Retry') }}</button><button class="btn" @click="openSettings">{{ t('settings') }}</button></div>
   </main>
 
   <template v-else>
@@ -541,7 +552,7 @@ createApp({
   </div>
 
   <preview-modal v-if="preview" :preview="preview" :writing="writing" @close="preview=null" @confirm="confirmWrite" @template="openPreview" @settings="preview=null; openSettings()"></preview-modal>
-  <settings-modal v-if="showSettings && sources" :config="state.config" :sources="sources" :home="state.home" :platform="state.platform" :config-path="state.configPath" :testing="testing" :test-result="testResult" :saving="saving" @close="showSettings=false" @save="saveSettings" @test="testAi" @install-shell="installShell"></settings-modal>
+  <settings-modal v-if="showSettings" :config="state.config" :sources="sources" :sources-loading="sourcesLoading" :sources-error="sourcesError" :home="state.home" :platform="state.platform" :config-path="state.configPath" :testing="testing" :test-result="testResult" :saving="saving" @close="showSettings=false" @save="saveSettings" @test="testAi" @install-shell="installShell" @refresh-sources="loadSources(true)"></settings-modal>
 
   <div class="toast" v-if="toast" role="status">{{ toast.text }} <button v-if="toast.undo" @click="toast.undo()">{{ t('undo') }}</button></div>
 </div>`,
