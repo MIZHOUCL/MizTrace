@@ -14,15 +14,16 @@ import { ListView } from './components/listview.js';
 import { NotesBox } from './components/notes.js';
 import { JournalLibrary } from './components/journals.js';
 import { AppUpdates } from './components/app-updates.js';
+import { Reports } from './components/reports.js';
 
 const { createApp, ref, computed, reactive, watch, onMounted, nextTick } = window.Vue;
 
 createApp({
-  components: { DayBoard, Drawer, SetupPanel, PreviewModal, SettingsModal, ListView, NotesBox, JournalLibrary, AppUpdates },
+  components: { DayBoard, Drawer, SetupPanel, PreviewModal, SettingsModal, ListView, NotesBox, JournalLibrary, AppUpdates, Reports },
   setup() {
     const state = reactive({ today: '', tz: '', utcOffset: '', config: null, rootsConfigured: false, setupDone: false, platform: '', home: '', dataDir: '', configPath: '', disclosure: null });
     const date = ref('');
-    const page = ref(localStorage.getItem('mt_page') === 'journals' ? 'journals' : 'today');
+    const page = ref(['journals', 'reports'].includes(localStorage.getItem('mt_page')) ? localStorage.getItem('mt_page') : 'today');
     const sidebarCollapsed = ref(localStorage.getItem('mt_sidebar_collapsed') === '1');
     function toggleSidebar() {
       sidebarCollapsed.value = !sidebarCollapsed.value;
@@ -35,6 +36,11 @@ createApp({
       page.value = value;
       localStorage.setItem('mt_page', value);
       if (value === 'today' && state.config && !setupNeeded.value) await loadDay();
+    }
+    async function editReport(report) {
+      await switchPage('journals');
+      await nextTick();
+      await library.value?.openSaved(report);
     }
     const loading = ref(false);
     const error = ref('');
@@ -441,7 +447,7 @@ createApp({
     });
 
     return {
-      page, library, L, switchPage, sidebarCollapsed, toggleSidebar,
+      page, library, L, switchPage, editReport, sidebarCollapsed, toggleSidebar,
       state, date, loading, error, modules, notes, notesSaving, meta, view, drawer, popping, risen, toast, draft, aiDraft, rulesDraft, writing, rulesBusy, previewing, preview, showSettings, sources, sourcesLoading, sourcesError, loadSources, testResult, testing, saving, hintSaving, setupNeeded,
       selectedCount, headline, subline, legend, dateLabel, aiReady,
       renderMd, catVar, CAT_WORD, num, t, lang, LANGS, langMenu, pickLang,
@@ -464,12 +470,14 @@ createApp({
     <nav :aria-label="L('功能模块', 'Modules')">
       <button :class="{active:page==='today'}" :aria-label="L('今日记录', 'Today')" :aria-current="page==='today' ? 'page' : undefined" @click="switchPage('today')"><span aria-hidden="true">◷</span><div><strong>{{ L('今日记录', 'Today') }}</strong><small>{{ L('整理一天的工作痕迹', 'Your daily work traces') }}</small></div></button>
       <button :class="{active:page==='journals'}" :aria-label="L('日记库', 'Journal library')" :aria-current="page==='journals' ? 'page' : undefined" @click="switchPage('journals')"><span aria-hidden="true">▤</span><div><strong>{{ L('日记库', 'Journal library') }}</strong><small>{{ L('回看、编辑与沉淀', 'Read, edit and reflect') }}</small></div></button>
+      <button :class="{active:page==='reports'}" :aria-label="L('周报 / 月报', 'Reports')" :aria-current="page==='reports' ? 'page' : undefined" @click="switchPage('reports')"><span aria-hidden="true">▥</span><div><strong>{{ L('周报 / 月报', 'Reports') }}</strong><small>{{ L('整理成果与下一步', 'Outcomes and next steps') }}</small></div></button>
     </nav>
     <div class="sidebar-bottom"><span class="local-dot"></span>{{ L('记录保存在本机', 'Records stored locally') }}</div>
   </aside>
   <div class="app-content">
   <header class="topbar">
     <span class="section-name" v-if="page==='journals'">{{ L('记录 / 日记库', 'Records / Library') }}</span>
+    <span class="section-name" v-if="page==='reports'">{{ L('回顾 / 周报与月报', 'Review / Reports') }}</span>
     <template v-if="page==='today'">
     <nav class="datenav" :aria-label="t('pickDate')">
       <button class="btn quiet" @click="shiftDate(-1)" :title="t('prevDay')" :aria-label="t('prevDay')">‹</button>
@@ -491,7 +499,7 @@ createApp({
       <span v-if="writing || previewing" class="spin light"></span> {{ writing ? t('generating') : (previewing ? t('preparing') : t('genJournal')) }}
     </button>
     </template>
-    <span class="spacer" v-if="page==='journals'"></span>
+    <span class="spacer" v-if="page!=='today'"></span>
     <span class="langpick">
       <button class="btn quiet lang" @click="langMenu = !langMenu" :aria-label="t('lang')" aria-haspopup="listbox" :aria-expanded="langMenu"><b>{{ lang === 'en' ? 'US' : 'CN' }}</b> {{ lang === 'en' ? 'EN' : '中' }} <i>⌄</i></button>
       <ul class="langmenu" v-if="langMenu" role="listbox">
@@ -505,6 +513,7 @@ createApp({
   <p v-if="error" class="banner" role="alert">{{ error }} <button class="btn small quiet" @click="error=''">{{ t('close') }}</button></p>
 
   <journal-library v-if="state.config" v-show="page==='journals'" ref="library" :active="page==='journals'" :today="state.today"></journal-library>
+  <reports v-if="state.config" v-show="page==='reports'" :active="page==='reports'" :today="state.today" @edit="editReport" @settings="openSettings"></reports>
   <div v-show="page==='today'">
   <main v-if="setupNeeded">
     <setup-panel v-if="sources?.candidates" :sources="sources" :home="state.home" :platform="state.platform" @done="finishSetup" @skip="skipSetup" @lang="pickLang"></setup-panel>

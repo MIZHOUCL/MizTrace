@@ -8,7 +8,7 @@ import path from 'node:path';
 import { dbPath, ensureDataDir } from './config.js';
 import { snapshotJournal } from './journal-history.js';
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const MIGRATIONS = [
   {
@@ -138,6 +138,14 @@ const MIGRATIONS = [
       );
       CREATE INDEX idx_journal_revisions_document ON journal_revisions(document_id, id DESC);
     `,
+  },
+  {
+    version: 7,
+    sql: `CREATE TABLE reports (
+      id TEXT PRIMARY KEY, kind TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL,
+      template TEXT NOT NULL, title TEXT NOT NULL, markdown TEXT NOT NULL, metadata_json TEXT NOT NULL,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ); CREATE INDEX idx_reports_period ON reports(start_date, end_date);`,
   },
 ];
 

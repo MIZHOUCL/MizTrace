@@ -23,6 +23,21 @@ function fakeFetch(handler) {
 }
 
 const KEY = 'sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
+test('日记按项目聚合再按时间排列；交错提问的回复使用明确编号而非最近邻', () => {
+  const mod = (project, hour, items) => ({ key: `${project}@${hour}`, projectId: project, projectName: project,
+    title: project, category: '代码', startTs: `2026-11-27T${hour}:00:00Z`, endTs: `2026-11-27T${hour}:10:00Z`, durationMin: 10, stats: {}, items });
+  const prompt = buildPrompt({ localDate: '2026-11-27', modules: [
+    mod('A', '15', []), mod('B', '09', []), mod('A', '08', [
+      { kind: 'prompt', sourceId: 'session:a', ts: '2026-11-27T08:00:00Z', label: '需求 A' },
+      { kind: 'prompt', sourceId: 'session:b', ts: '2026-11-27T08:01:00Z', label: '需求 B' },
+      { kind: 'reply', sourceId: 'reply:a', promptSourceId: 'session:a', ts: '2026-11-27T08:02:00Z', label: '需求 A 尚未验证。' },
+    ]),
+  ] });
+  assert.ok(prompt.user.indexOf('模块 A@08') < prompt.user.indexOf('模块 A@15'));
+  assert.ok(prompt.user.indexOf('模块 A@15') < prompt.user.indexOf('模块 B@09'));
+  assert.match(prompt.user, /需求 A 尚未验证。（对应提问 e1）/);
+  assert.match(prompt.system, /执行测试命令不等于测试通过/);
+});
 test('模型连接测试的整个响应读取最多等待 15 秒，超时能恢复界面', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const result = testConnection({ baseUrl: 'https://model.example/v1', apiKey: KEY, model: 'test', timeoutMs: 60_000 }, {

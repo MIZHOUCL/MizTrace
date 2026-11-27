@@ -6,6 +6,7 @@ import { stripAnnotations } from './journal.js';
 import { snapshotJournal } from './journal-history.js';
 import { libraryRoots } from './journal-roots.js';
 import { MAX_JOURNAL_BYTES, digest, journalError, journalRoot, checkedJournalPath, readJournalFile, replaceJournalFile } from './journal-files.js';
+import { listReports, readReport, saveReport } from './report-store.js';
 
 const MAX_ENTRIES = 2000;
 const normalize = (s) => String(s ?? '').replace(/\r\n/g, '\n').trimEnd();
@@ -47,6 +48,7 @@ function fileDocument(cfg, id) {
 
 export function readLibraryDocument(db, cfg, id) {
   if (typeof id !== 'string') throw journalError('缺少日记标识');
+  if (id.startsWith('report:')) return readReport(db, id);
   if (id.startsWith('file:')) return fileDocument(cfg, id);
   const match = id.match(/^(journal|draft):(\d{4}-\d{2}-\d{2})$/);
   if (!match) throw journalError('日记标识无效');
@@ -100,6 +102,7 @@ export function listLibraryDocuments(db, cfg) {
   }
   if (truncated || journals.length > MAX_ENTRIES || drafts.length > MAX_ENTRIES) warnings.push('列表达到扫描上限（每类 2000 篇、文件 32 MiB、8 层目录）；请缩小日记目录范围。');
   if (skipped) warnings.push(`${skipped} 个文件或目录无法读取，可能超出 512 KiB、不是 UTF-8 或没有访问权限。`);
+  documents.push(...listReports(db));
   documents.sort((a, b) => (b.date || b.updatedAt || '').localeCompare(a.date || a.updatedAt || '') || b.updatedAt.localeCompare(a.updatedAt));
   return { documents, warnings, directories: cfg.journalLibrary?.roots ?? [] };
 }
@@ -131,6 +134,7 @@ export function createLibraryDocument(db, cfg, date) {
 }
 
 export function saveLibraryDocument(db, cfg, { id, markdown, revision }) {
+  if (typeof id === 'string' && id.startsWith('report:')) return saveReport(db, { id, markdown, revision });
   if (typeof markdown !== 'string') throw journalError('正文必须是 Markdown 文本');
   if (Buffer.byteLength(markdown) > MAX_JOURNAL_BYTES) throw journalError('正文不能超过 512 KiB', 413, 'TOO_LARGE');
   const current = readLibraryDocument(db, cfg, id);

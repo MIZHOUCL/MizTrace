@@ -41,7 +41,7 @@ export const JournalLibrary = {
     });
     const html = computed(() => renderMd(previewText.value));
     const charCount = computed(() => text.value.length);
-    const kindName = (kind) => ({ file: L('Markdown 文件', 'Markdown file'), journal: L('本地日记', 'Local journal'), draft: L('生成草稿', 'Draft') })[kind];
+    const kindName = (kind) => ({ file: L('Markdown 文件', 'Markdown file'), journal: L('本地日记', 'Local journal'), draft: L('生成草稿', 'Draft'), report: L('周报 / 月报', 'Reports') })[kind];
     const timeLabel = (v) => v ? new Date(v).toLocaleString(lang.value === 'en' ? 'en-US' : 'zh-CN') : '';
 
     async function refresh() {
@@ -195,7 +195,7 @@ export const JournalLibrary = {
         <div class="journal-list-heading"><strong v-if="!listCollapsed">{{ L('全部记录', 'All entries') }}</strong><button class="btn small quiet" @click="toggleList" :aria-expanded="!listCollapsed" :aria-label="listCollapsed ? L('展开日记列表', 'Expand journal list') : L('收起日记列表', 'Collapse journal list')" :title="listCollapsed ? L('展开日记列表', 'Expand journal list') : L('收起日记列表', 'Collapse journal list')">{{ listCollapsed ? '›' : '‹' }}</button></div>
         <button v-if="listCollapsed" class="btn small quiet collapsed-folders" @click="managing=true" :title="L('管理日记目录', 'Journal folders')" :aria-label="L('管理日记目录', 'Journal folders')">▤</button>
         <template v-if="!listCollapsed">
-        <div class="journal-search"><input type="search" v-model="search" :placeholder="L('搜索标题、日期或文件名…', 'Search title, date or filename…')" :aria-label="L('搜索日记', 'Search journals')"><select v-model="filter" :aria-label="L('日记类型', 'Entry type')"><option value="all">{{ L('全部记录', 'All entries') }}</option><option value="file">{{ kindName('file') }}</option><option value="journal">{{ kindName('journal') }}</option><option value="draft">{{ kindName('draft') }}</option></select></div>
+        <div class="journal-search"><input type="search" v-model="search" :placeholder="L('搜索标题、日期或文件名…', 'Search title, date or filename…')" :aria-label="L('搜索日记', 'Search journals')"><select v-model="filter" :aria-label="L('日记类型', 'Entry type')"><option value="all">{{ L('全部记录', 'All entries') }}</option><option value="file">{{ kindName('file') }}</option><option value="journal">{{ kindName('journal') }}</option><option value="draft">{{ kindName('draft') }}</option><option value="report">{{ kindName('report') }}</option></select></div>
         <div class="journal-entries" :aria-busy="loading">
           <p class="fine list-empty" v-if="loading && !documents.length">{{ L('正在读取日记…', 'Loading entries…') }}</p>
           <p class="fine list-empty" v-else-if="!filtered.length">{{ documents.length ? L('没有匹配的记录。', 'No matching entries.') : L('这里还没有日记。新建第一篇，或点击下面的「管理日记目录」选择文件夹。', 'Create an entry or choose folders below.') }}</p>

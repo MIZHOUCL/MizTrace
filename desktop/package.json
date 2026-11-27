@@ -1,7 +1,7 @@
 {
   "name": "miztrace-desktop",
   "productName": "MizTrace",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "MizTrace: private work journals and Markdown editor",
   "author": "MizTrace contributors",
   "license": "MIT",
