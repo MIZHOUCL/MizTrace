@@ -260,7 +260,7 @@ export async function startServer(opts) {
     template: cfg.reports?.template || 'work', templateRevision: reportTemplateSignature(cfg.reports || {}) });
   function checkReportBudget() {
     const usage = aiUsageToday(db, todayLocalDate(cfg.cutoffHour));
-    if (cfg.ai?.dailyLimit && usage.calls >= cfg.ai.dailyLimit) throw journalError(`今天已达到 AI 调用上限 ${cfg.ai.dailyLimit}，报告需要分步调用，请调整上限或明天重试。`);
+    if (cfg.ai?.dailyLimit && usage.calls >= cfg.ai.dailyLimit) throw journalError(`今天已达到 AI 调用上限 ${cfg.ai.dailyLimit}，报告需要分步调用，请调整上限或明天重试。`, 400, 'AI_DAILY_LIMIT');
   }
   const api = {
     async 'GET /api/reports'() { return { reports: listReports(db), ...reportTemplateSettings() }; },
@@ -287,7 +287,7 @@ export async function startServer(opts) {
       const token = crypto.randomBytes(20).toString('hex');
       reportPreviews.set(token, { prepared, input: { ...prepared.options, sourceIds: body.sourceIds }, created: now, aiSignature: reportAiSignature() });
       return { token, options: prepared.options, sources: prepared.chunks, estTokens: prepared.estTokens,
-        template: prepared.template, instructions: prepared.instructions,
+        template: prepared.template, instructions: prepared.instructions, timeoutMs: cfg.ai.timeoutMs,
         estimatedCalls: prepared.estimatedCalls, daysCovered: prepared.daysCovered, warnings: prepared.warnings,
         secretHits: prepared.secretHits, aiProblems: aiProblems(cfg.ai), managedDevice: cfg.managedDevice === true,
         model: cfg.ai?.model || '', usage: aiUsageToday(db, todayLocalDate(cfg.cutoffHour)), dailyLimit: cfg.ai?.dailyLimit || 0 };
@@ -317,7 +317,7 @@ export async function startServer(opts) {
       const id = crypto.randomUUID(), job = { id, status: 'running', message: '正在准备素材…' };
       reportJobs.set(id, job);
       const config = structuredClone(cfg), usageDate = todayLocalDate(cfg.cutoffHour);
-      // 让请求先返回，前端轮询实际阶段；整篇通过校验后才保存，不覆盖旧报告。
+      // 请求先返回，前端轮询实际阶段；生成结果按质量标记保存，不覆盖旧报告。
       reportTask = Promise.resolve().then(async () => {
         const generated = mode === 'local' ? localReport(preview.prepared) : await generateReport(config, preview.prepared, {
           ...(opts.reportDeps ?? {}),

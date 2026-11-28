@@ -5,7 +5,7 @@ import os from 'node:os';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import { startServer } from '../src/server/index.js';
-import { DEFAULTS, defaultSessionDirs } from '../src/config.js';
+import { DEFAULTS, defaultSessionDirs, loadConfig } from '../src/config.js';
 import { pickReportTemplate } from '../src/report-templates.js';
 const { chromium } = await import(pathToFileURL(process.argv[2]).href);
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-reports-ui-'));
@@ -31,8 +31,12 @@ const reportDeps = { fetchImpl: async (_url, init) => {
   if (input.sources && scenario === 'partial') facts.push({ ...facts[0], topic: '未经证实的收益', text: '效率提升 99%。' });
   if (input.sources && scenario === 'fallback') { facts.splice(0, facts.length, { ...facts[0], refs: ['unknown'] }); }
   const template = pickReportTemplate(cfg);
+  if (input.sources && template.layout === '5w2h') {
+    for (const fact of facts) fact.fiveW2H = { what: fact.quotes[0].text };
+    facts[0].fiveW2H.howMuch = '新增 8 项测试均通过';
+  }
   const output = input.sources ? { facts } : { keep: ['f1', 'f2', 'f3'], highlights: ['f1'], conflicts: [],
-    sections: [{ title: template.sections[0], facts: ['f1'] }, { title: template.sections.at(-1), facts: ['f2', 'f3'] }] };
+    sections: [{ title: template.sections[0], facts: template.layout === '5w2h' ? ['f1', 'f2'] : ['f1'] }, { title: template.sections.at(-1), facts: template.layout === '5w2h' ? ['f3'] : ['f2', 'f3'] }] };
   return { ok: true, text: async () => JSON.stringify({ model: 'fixture-model', choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(output) } }], usage: { prompt_tokens: 500, completion_tokens: 200 } }) };
 } };
 const server = await startServer({ cfg, port: 0, dbFile: path.join(data, 'data.db'), reportDeps });
@@ -47,6 +51,18 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(server.url);
   await page.getByRole('heading', { name: '把每天的进展，写成一份好报告' }).waitFor();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  assert.equal(await page.getByLabel('请求等待时间', { exact: true }).inputValue(), '180');
+  await page.getByLabel('请求等待时间', { exact: true }).fill('300');
+  await page.getByRole('dialog').getByRole('button', { name: '保存', exact: true }).click();
+  await page.locator('#f-timeout').waitFor({ state: 'detached' });
+  assert.equal(cfg.ai.timeoutMs, 300_000); assert.equal(loadConfig().ai.timeoutMs, 300_000);
+  await page.reload();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  assert.equal(await page.getByLabel('请求等待时间', { exact: true }).inputValue(), '300');
+  await page.getByLabel('请求等待时间', { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(data, 'report-timeout-settings.png'), fullPage: true });
+  await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click();
   // 固定日期，让回归不依赖执行日期。
   await page.getByLabel('开始日期', { exact: true }).fill('2026-11-23');
   await page.getByLabel('结束日期', { exact: true }).fill('2026-11-27');
@@ -73,6 +89,7 @@ try {
   await page.screenshot({ path: path.join(data, 'report-start.png'), fullPage: true });
   await page.getByRole('button', { name: '预览素材并生成报告 →', exact: true }).click();
   await page.getByRole('heading', { name: '确认本次报告素材', exact: true }).waitFor();
+  assert.match(await page.locator('.report-preview-modal').innerText(), /每次请求最多等待 300/);
   assert.equal(calls, 0, '素材预览不调用模型');
   await page.locator('.report-preview-modal details summary').first().click();
   assert.ok((await page.locator('.report-preview-modal pre').first().innerText()).includes(raw));
@@ -148,16 +165,52 @@ try {
   scenario = 'unavailable';
   await page.getByRole('button', { name: '预览素材并生成报告 →', exact: true }).click();
   await page.getByRole('button', { name: '确认发送并生成', exact: true }).click();
-  await page.getByRole('button', { name: '保存本地资料整理版', exact: true }).waitFor();
-  assert.match(await page.locator('.library-error').innerText(), /HTTP 503/);
-  const callsBeforeRecovery = calls;
-  await page.getByRole('button', { name: '保存本地资料整理版', exact: true }).click();
   await page.locator('.report-history > button').nth(4).waitFor();
   await page.getByText('已保存的资料整理版', { exact: true }).waitFor();
-  assert.equal(calls, callsBeforeRecovery, '模型不可用时本地恢复不调用模型');
+  assert.match(await page.locator('.report-quality').innerText(), /HTTP 503/);
+  assert.ok((await page.locator('.report-document').innerText()).includes(raw.split('\n')[0]));
   assert.equal(await page.locator('.report-history > button').count(), 5);
   assert.equal(await page.locator('.library-error').count(), 0);
   await page.screenshot({ path: path.join(data, 'report-recovered.png'), fullPage: true });
+  scenario = 'normal';
+  await page.getByLabel('报告模板', { exact: true }).selectOption('5w2h');
+  await page.getByRole('button', { name: '查看 / 编辑提示词', exact: true }).click();
+  assert.equal(await page.getByLabel('展示方式', { exact: true }).inputValue(), '5w2h');
+  assert.match(await page.getByLabel('报告提示词', { exact: true }).inputValue(), /Why.*What.*How much.*When.*Where.*Who/s);
+  await page.screenshot({ path: path.join(data, 'report-5w2h-prompt.png'), fullPage: true });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: '复制模板', exact: true }).click();
+  await page.getByLabel('模板名称', { exact: true }).fill('团队5W2H总结与计划');
+  await page.getByRole('button', { name: '保存模板', exact: true }).click();
+  await page.locator('.report-template-editor').waitFor({ state: 'detached' });
+  const copied = (await call('GET', 'reports')).templates.at(-1);
+  assert.equal(copied.layout, '5w2h'); assert.equal(loadConfig().reports.templates.at(-1).layout, '5w2h');
+  await page.reload();
+  await page.getByRole('heading', { name: '把每天的进展，写成一份好报告' }).waitFor();
+  assert.equal(await page.getByLabel('报告模板', { exact: true }).inputValue(), copied.id);
+  await page.getByRole('button', { name: '本月', exact: true }).click();
+  await page.getByLabel('开始日期', { exact: true }).fill('2026-11-01');
+  await page.getByLabel('结束日期', { exact: true }).fill('2026-11-30');
+  await page.getByRole('button', { name: '加载 / 刷新素材', exact: true }).click();
+  await page.getByRole('button', { name: '预览素材并生成报告 →', exact: true }).click();
+  await page.locator('.report-prompt-preview > summary').click();
+  await page.locator('.report-prompt-preview details').first().locator('summary').click();
+  assert.match(await page.locator('.report-prompt-preview').innerText(), /fiveW2H/);
+  await page.getByRole('button', { name: '确认发送并生成', exact: true }).click();
+  await page.locator('.report-history > button').nth(5).waitFor();
+  assert.equal(await page.locator('.report-document table').count(), 3);
+  assert.match(await page.locator('.report-document').innerText(), /本期工作总结.*目的 \/ 问题点（Why）.*下一期工作计划/s);
+  assert.match(await page.locator('.report-document').innerText(), /完成情况\s+未记录/);
+  assert.equal(await page.locator('.report-quality').count(), 0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: path.join(data, 'report-5w2h-generated.png'), fullPage: true });
+  const fiveWDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: '导出 .md', exact: true }).click();
+  const exported = await fiveWDownload;
+  assert.match(fs.readFileSync(await exported.path(), 'utf8'), /目的 \/ 问题点（Why）/);
+  await page.setViewportSize({ width: 760, height: 900 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, '5W2H表格窄窗口不横向溢出');
+  await page.screenshot({ path: path.join(data, 'report-5w2h-narrow.png'), fullPage: true });
   assert.deepEqual(errors, []);
   console.log('Reports browser smoke passed (mock model):', data);
 } finally { await browser.close(); await server.close(); if (oldDataDir === undefined) delete process.env.MIZTRACE_DATA_DIR; else process.env.MIZTRACE_DATA_DIR = oldDataDir; }

@@ -7,6 +7,8 @@
  * baseUrl、key、模型名全部由用户在前端自填。
  */
 import { scrubSecrets } from './redact.js';
+import { normalizeTimeoutMs } from './limits.js';
+export { DEFAULT_TIMEOUT_MS } from './limits.js';
 
 export const PROTOCOLS = ['auto', 'openai', 'anthropic'];
 
@@ -71,11 +73,18 @@ async function readJson(res) {
 
 function httpError(res, text) {
   const head = scrubSecrets(String(text ?? '').slice(0, 300).replace(/\s+/g, ' '));
-  return new Error(`模型服务返回 HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}：${head || '（无正文）'}`);
+  return Object.assign(new Error(`模型服务返回 HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}：${head || '（无正文）'}`), {
+    code: 'MODEL_HTTP', status: res.status, retryable: [408, 429].includes(res.status) || res.status >= 500,
+  });
 }
 
-/** 默认超时。写一篇 2000 token 的日记，国内几家模型服务常常要一分多钟；60 秒会把正常的生成掐掉。 */
-export const DEFAULT_TIMEOUT_MS = 180_000;
+function transportError(err, timedOut, timeoutMs) {
+  return Object.assign(new Error(timedOut
+    ? `模型请求超时（${Math.round(timeoutMs / 1000)} 秒内未完成响应）。可在设置中增大「请求等待时间」；输出 token 上限与等待时间是两项独立设置。`
+    : `连不上模型服务：${scrubSecrets(err?.message ?? String(err))}`), {
+    code: timedOut ? 'MODEL_TIMEOUT' : 'MODEL_NETWORK', retryable: true,
+  });
+}
 
 /**
  * 发一次对话请求。
@@ -91,7 +100,7 @@ export async function chat(cfg, msg, deps = {}) {
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
   if (typeof fetchImpl !== 'function') throw new Error('当前 Node 没有全局 fetch');
   const controller = new AbortController();
-  const timeoutMs = cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = normalizeTimeoutMs(cfg.timeoutMs);
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const started = Date.now();
   const maxTokens = cfg.maxTokens ?? 2000;
@@ -135,14 +144,12 @@ export async function chat(cfg, msg, deps = {}) {
       res = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(sent), signal: controller.signal });
     } catch (err) {
       clearTimeout(timer);
-      if (err?.name === 'AbortError') throw new Error(`请求超时：模型 ${Math.round(timeoutMs / 1000)} 秒内没有回完（${url}）。可以把「最大输出」调小，或在 config.json 的 ai.timeoutMs 里调大`);
-      throw new Error(`连不上模型服务：${scrubSecrets(err?.message ?? String(err))}（${url}）`);
+      throw transportError(err, controller.signal.aborted, timeoutMs);
     }
     try { ({ json, text } = await readJson(res)); }
     catch (err) {
       clearTimeout(timer);
-      if (controller.signal.aborted) throw new Error(`模型响应读取超时（${Math.round(timeoutMs / 1000)} 秒），请检查服务网络后重试`);
-      throw err;
+      throw transportError(err, controller.signal.aborted, timeoutMs);
     }
     if (res.ok) break;
     const fixed = proto === 'openai' && attempt < 2 ? compatFix(sent, res.status, text) : null;

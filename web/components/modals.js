@@ -160,6 +160,7 @@ export const SettingsModal = {
       svnOn: c.svn?.enabled === true,
       svnRemote: c.svn?.remote !== false,
       ai: { ...(c.ai || {}), apiKey: '', template: c.ai?.template || 'summary' },
+      timeoutSeconds: (c.ai?.timeoutMs || 180_000) / 1000,
     });
     const readableBrowsers = computed(() => (props.sources?.browsers ?? []).filter((b) => b.profiles.some((p) => p.readable)));
     watch(() => props.sources?.browsers, (browsers) => {
@@ -180,6 +181,7 @@ export const SettingsModal = {
       const a = { ...f.ai };
       if (!a.apiKey) delete a.apiKey;
       a.maxTokens = Number(a.maxTokens) || 2000;
+      a.timeoutMs = (Number(f.timeoutSeconds) || 180) * 1000;
       a.dailyLimit = Number(a.dailyLimit) || 0;
       delete a.hasApiKey;
       delete a.configured;
@@ -278,6 +280,8 @@ export const SettingsModal = {
       <div><input id="f-model" v-model="f.ai.model" placeholder="deepseek-chat / glm-4-flash / claude-sonnet-5 …"><small>{{ L('用服务商的稳定名字；名字里带 expires / preview 的限时模型下线后常常只回空内容。', 'Use the stable model name from your provider; time-limited names with expires / preview often return empty content once retired.') }}</small></div>
       <label for="f-max">{{ L('最大输出', 'Max output') }}</label>
       <div class="inline-fields"><input id="f-max" type="number" v-model.number="f.ai.maxTokens" class="short"><small>{{ L('tokens。带思考的模型（DeepSeek V4 flash / reasoner 这类）会先把它花在思考上，建议 16000 以上；预算不够时会自动加大重试并存回这里。', 'tokens. Reasoning models (DeepSeek V4 flash / reasoner, o-series) spend it on thinking first; use 16000 or more. When the budget runs out MizTrace retries with more and saves it here.') }}</small></div>
+      <label for="f-timeout">{{ L('请求等待时间', 'Request timeout') }}</label>
+      <div class="inline-fields"><input id="f-timeout" type="number" min="15" max="900" step="15" v-model.number="f.timeoutSeconds" class="short"><small>{{ L('秒，默认180，可设15–900。每次调用独立计时；月报和推理模型可能需要更久。调整最大输出不会延长等待时间，测试连接仍最多等待15秒。', 'seconds, default 180; range 15–900 per call. Monthly reports and reasoning models may need longer. Max output does not change this deadline. Connection tests wait up to 15 seconds.') }}</small></div>
       <label for="f-limit">{{ L('每日上限', 'Daily limit') }}</label>
       <div class="inline-fields"><input id="f-limit" type="number" v-model.number="f.ai.dailyLimit" class="short"><small>{{ L('次，防手滑；0 = 不限。', 'calls; 0 = unlimited.') }}</small></div>
       <label>{{ L('能看图', 'Vision') }}</label>

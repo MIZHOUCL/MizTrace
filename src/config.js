@@ -9,6 +9,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { DEFAULT_CUTOFF_HOUR } from './time.js';
 import { normalizeTemplates } from './ai/templates.js';
+import { DEFAULT_TIMEOUT_MS, normalizeTimeoutMs } from './ai/limits.js';
 
 /** SQLite WAL 放在这些同步目录里有损坏风险，检测到就告警。 */
 const SYNC_DIR_HINTS = ['iCloud', 'OneDrive', 'Dropbox', 'Google Drive', 'Nextcloud', '坚果云'];
@@ -175,7 +176,8 @@ export const DEFAULTS = {
     /** 两层日记（概览 + 过程）用中文写，2000 tokens 常常不够写完就被截断；推理模型还要算上思考。 */
     maxTokens: 4000,
     temperature: 0.4,
-    timeoutMs: 60_000,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    timeoutVersion: 1,
     /** 每日调用上限（次），防手滑；0 = 不限。 */
     dailyLimit: 30,
     /** 整篇日记的写作要求（可选），每次生成都带给模型；某个模块单独的要求在网页抽屉里写。 */
@@ -251,6 +253,7 @@ export function mergeAiConfig(current, incoming) {
   next.style = String(next.style ?? '').trim().slice(0, 2000);
   next.maxTokens = Math.max(200, Math.min(32_000, Number(next.maxTokens) || 4000));
   next.temperature = Math.max(0, Math.min(2, Number(next.temperature) || 0));
+  next.timeoutMs = normalizeTimeoutMs(next.timeoutMs);
   return next;
 }
 
@@ -316,6 +319,9 @@ export function loadConfig() {
   delete cfg.ai.enabled;
   // 2000 是老版本写进配置文件的默认值，中文两层日记经常写不完就被截断；带思考的模型更是一个字都出不来。抬到新默认。
   if (cfg.ai.maxTokens === 2000) cfg.ai.maxTokens = DEFAULTS.ai.maxTokens;
+  // 老版本把 60 秒默认值写进了配置，覆盖了 provider 的 180 秒默认值。
+  cfg.ai.timeoutMs = normalizeTimeoutMs(Number(cfg.ai.timeoutMs) === 60_000 && !onDisk.ai?.timeoutVersion ? DEFAULT_TIMEOUT_MS : cfg.ai.timeoutMs);
+  cfg.ai.timeoutVersion = 1;
   cfg.fileScan = { ...DEFAULTS.fileScan, ...(onDisk.fileScan || {}) };
   cfg.sessions = { ...DEFAULTS.sessions, ...(onDisk.sessions || {}) };
   cfg.browser = { ...DEFAULTS.browser, ...(onDisk.browser || {}) };

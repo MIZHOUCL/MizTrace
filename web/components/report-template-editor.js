@@ -6,7 +6,7 @@ export const ReportTemplateEditor = {
   emits: ['save', 'close', 'remove', 'reset'],
   setup(props, { emit }) {
     const L = (zh, en) => lang.value === 'en' ? en : zh;
-    const form = ref({ ...props.item, sections: props.item.sections.join('\n') });
+    const form = ref({ ...props.item, layout: props.item.layout || 'narrative', sections: props.item.sections.join('\n') });
     const initial = JSON.stringify(form.value), nameInput = ref(null);
     const dirty = computed(() => JSON.stringify(form.value) !== initial);
     function close() {
@@ -28,6 +28,7 @@ export const ReportTemplateEditor = {
         <fieldset :disabled="saving">
           <label>{{ L('模板名称', 'Template name') }}<input ref="nameInput" v-model="form.name" maxlength="40" required :placeholder="L('例如：给主管的每周汇报', 'For example: Weekly update for my manager')"></label>
           <label>{{ L('模板说明', 'Description') }}<input v-model="form.description" maxlength="300" :placeholder="L('例如：突出交付和解决方案，简短直接', 'For example: Focus on deliveries and solutions')"></label>
+          <label>{{ L('展示方式', 'Presentation') }}<select v-model="form.layout" :aria-label="L('展示方式', 'Presentation')"><option value="narrative">{{ L('按项目分段', 'Project paragraphs') }}</option><option value="5w2h">{{ L('5W2H 事项表', '5W2H item tables') }}</option></select><small v-if="form.layout === '5w2h'">{{ L('每项工作用字段表展示；缺失信息显示“未记录”。提示词和章节仍可编辑，至少两个章节，最后一章用于未来计划，其他章节用于本期总结。', 'Each work item uses a field table; missing values show Not recorded. Prompts and sections remain editable. Use at least two sections; the last holds future plans, the others summarize this period.') }}</small></label>
           <label>{{ L('章节标题（每行一个）', 'Section titles (one per line)') }}<textarea v-model="form.sections" rows="4" maxlength="809" required :placeholder="L('本期产出 / 问题与后续（每行一个）', 'Outcomes / Issues and next steps (one per line)')"></textarea></label>
           <label>{{ L('报告提示词', 'Report prompt') }}<textarea class="report-prompt-input" v-model="form.prompt" rows="9" maxlength="6000" required :placeholder="L('例如：面向主管，按项目总结本周产出。重点说明解决了什么问题、形成了什么方案，省略重复排查过程。仅在明确受阻时列出问题，不因缺少完成反馈写成推进中。每项控制在两句话。', 'For example: Write for my manager, grouped by project. Focus on solutions and outcomes. List issues only when explicitly unresolved. Use two sentences per item.')"></textarea></label>
           <p class="fine">{{ form.prompt.length }}/6000 · {{ L('模板不会允许编造事实或数字。生成前可查看完整提示词和所选素材。', 'Templates cannot invent facts or metrics. Preview full instructions and sources before generating.') }}</p>

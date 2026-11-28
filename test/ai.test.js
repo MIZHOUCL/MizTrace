@@ -50,6 +50,74 @@ test('模型连接测试的整个响应读取最多等待 15 秒，超时能恢�
   assert.match(response.error, /超时/);
 });
 
+for (const stage of ['headers', 'body']) {
+  test(`模型等待默认180秒，${stage}阶段超过旧60秒仍可成功`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const body = JSON.stringify({ choices: [{ message: { content: 'OK' } }] });
+    const delay = () => new Promise((resolve) => setTimeout(resolve, 90_000));
+    let done = false;
+    const pending = chat({ baseUrl: 'https://model.example/v1', apiKey: KEY, model: 'test' }, { system: 's', user: 'u' }, {
+      fetchImpl: async (_url, { signal }) => {
+        const wait = async () => { await delay(); assert.equal(signal.aborted, false); };
+        if (stage === 'headers') await wait();
+        return { ok: true, text: async () => { if (stage === 'body') await wait(); return body; } };
+      },
+    }).then((result) => { done = true; return result; });
+    await Promise.resolve();
+    t.mock.timers.tick(60_001);
+    await Promise.resolve();
+    assert.equal(done, false);
+    t.mock.timers.tick(30_000);
+    assert.equal((await pending).text, 'OK');
+  });
+
+  test(`180秒期限覆盖${stage}阶段，错误明确区分等待时间与输出预算`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const pending = chat({ baseUrl: 'https://model.example/v1', apiKey: KEY, model: 'test' }, { system: 's', user: 'u' }, {
+      fetchImpl: async (_url, { signal }) => {
+        const wait = () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))));
+        if (stage === 'headers') return wait();
+        return { ok: true, text: wait };
+      },
+    });
+    const rejected = assert.rejects(pending, (e) => e.code === 'MODEL_TIMEOUT' && e.retryable && /180.*请求等待时间/s.test(e.message));
+    await Promise.resolve();
+    t.mock.timers.tick(180_001);
+    await rejected;
+  });
+}
+
+test('配置迁移旧60秒默认值，保留自定义等待时间，设置保存后60秒也可保留', async () => {
+  const fs = await import('node:fs'), path = await import('node:path');
+  const { loadConfig, mergeAiConfig, DEFAULTS } = await import('../src/config.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-timeout-cfg-'));
+  const prev = process.env.MIZTRACE_DATA_DIR;
+  process.env.MIZTRACE_DATA_DIR = dir;
+  try {
+    assert.equal(DEFAULTS.ai.timeoutMs, 180_000);
+    for (const [value, expected] of [[60_000, 180_000], [300_000, 300_000], ['invalid', 180_000], [0, 180_000], [-1, 180_000], [1000, 15_000], [9999999, 900_000]]) {
+      fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: { timeoutMs: value } }));
+      assert.equal(loadConfig().ai.timeoutMs, expected);
+    }
+    const saved = mergeAiConfig({}, { timeoutMs: 60_000 });
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: saved }));
+    assert.equal(loadConfig().ai.timeoutMs, 60_000);
+    assert.equal(mergeAiConfig({}, { timeoutMs: Infinity }).timeoutMs, 180_000);
+    assert.equal(mergeAiConfig({}, { timeoutMs: 1000 }).timeoutMs, 15_000);
+    assert.equal(mergeAiConfig({}, { timeoutMs: 9999999 }).timeoutMs, 900_000);
+  } finally {
+    if (prev === undefined) delete process.env.MIZTRACE_DATA_DIR; else process.env.MIZTRACE_DATA_DIR = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('服务故障标注可恢复，认证和参数错误不作为临时故障重试', async () => {
+  for (const status of [401, 403, 400, 408, 429, 500, 503]) {
+    await assert.rejects(chat({ baseUrl: 'https://model.example/v1', apiKey: KEY, model: 'test' }, { system: 's', user: 'u' }, fakeFetch(() => ({ status, json: { error: 'fixture' } }))),
+      (e) => e.code === 'MODEL_HTTP' && e.status === status && e.retryable === ([408, 429].includes(status) || status >= 500));
+  }
+});
+
 test('协议自动识别与端点拼接', () => {
   assert.equal(detectProtocol('https://api.anthropic.com'), 'anthropic');
   assert.equal(detectProtocol('https://api.deepseek.com/v1'), 'openai');
