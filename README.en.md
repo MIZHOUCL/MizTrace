@@ -11,13 +11,13 @@ The core has no third-party dependencies and works without an API key. macOS and
 
 ## Desktop app and journal library
 
-Download the **latest stable release** using these permanent links. Successful stable releases update these links automatically; prereleases and failed builds do not replace them.
+Download the **latest stable Windows release** using the permanent link below. Source commits alone do not create app updates: a higher version and a published installer are required. Releases include Windows by default; Mac users can run the source or build a preview for free.
 
 | Platform | Download |
 | --- | --- |
 | Windows x64 | [Latest installer](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-Windows-x64-Setup.exe) |
-| Mac Apple Silicon | [Latest DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-arm64.dmg) |
-| Mac Intel | [Latest DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-x64.dmg) |
+| Mac Apple Silicon | [Run the source or build a free preview](./docs/桌面打包与发布.md#免费在自己的-mac-上使用) |
+| Mac Intel | [Run the source or build a free preview](./docs/桌面打包与发布.md#免费在自己的-mac-上使用) |
 
 Individual use is free, including independently writing your own work journals and reports. Organization-wide deployments, shared systems and commercial services require a paid license; see [LICENSE](./LICENSE).
 

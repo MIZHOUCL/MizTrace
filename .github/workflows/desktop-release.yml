@@ -4,6 +4,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      include_macos:
+        description: '同时构建 macOS（正式发行需签名；手动构建可生成预览包）'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,16 +25,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            platform: win32
-            arch: x64
-          - os: macos-15
-            platform: darwin
-            arch: arm64
-          - os: macos-15-intel
-            platform: darwin
-            arch: x64
+        # 默认只发行 Windows，避免没有 Apple 付费证书时阻断 Windows 更新。
+        # 手动预览可勾选 Mac；正式标签须先设置仓库变量 MIZTRACE_RELEASE_MACOS=true。
+        include: >-
+          ${{ fromJSON(
+            (
+              (github.event_name == 'workflow_dispatch' && inputs.include_macos) ||
+              (github.event_name == 'push' && vars.MIZTRACE_RELEASE_MACOS == 'true')
+            ) &&
+            '[{"os":"windows-latest","platform":"win32","arch":"x64"},{"os":"macos-15","platform":"darwin","arch":"arm64"},{"os":"macos-15-intel","platform":"darwin","arch":"x64"}]' ||
+            '[{"os":"windows-latest","platform":"win32","arch":"x64"}]'
+          ) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -147,7 +153,7 @@ jobs:
             echo "This release is already public. Keep its published files unchanged; use a new version for changes."
             exit 0
           fi
-          # 先上传齐全部平台及许可证，再公开。旧版本补发不能覆盖最新正式版入口。
+          # 先上传齐本次选择的平台及许可证，再公开。旧版本补发不能覆盖最新正式版入口。
           cp LICENSE LICENSING.md THIRD_PARTY_NOTICES.md release/
           gh release upload "$RELEASE_TAG" release/* --clobber
           PUBLISHED_TAGS="$(gh api "repos/$GH_REPO/releases?per_page=100" --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')"

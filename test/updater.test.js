@@ -33,6 +33,20 @@ test('发布资产限制仓库和标签，缺失或错误的包不会启用更�
   assert.equal(releaseInfo(tampered, '0.4.0', 'win32', 'x64').feed, null);
   assert.equal(releaseInfo({ ...release(), draft: true }, '0.4.0', 'win32', 'x64'), null);
 });
+test('小版本更新也需要新发行版：0.5.2 能发现完整的 0.5.3，不能把同版本重传当成更新', async (t) => {
+  const next = { ...release(), tag_name: 'v0.5.3', assets: ['RELEASES', 'MizTrace-0.5.3-full.nupkg'].map((name) => ({
+    name, browser_download_url: `https://github.com/MIZHOUCL/MizTrace/releases/download/v0.5.3/${name}`, state: 'uploaded', size: 1000,
+  })) };
+  const { updater, native, counts } = fixture(t, { version: '0.5.2', fetchImpl: async () => ({ ok: true, text: async () => JSON.stringify(next) }) });
+  const state = await updater.check();
+  assert.equal(state.phase, 'available'); assert.equal(state.release.version, '0.5.3');
+  assert.equal(counts().downloads, 0);
+  await updater.download();
+  assert.equal(native.feed.url, 'https://github.com/MIZHOUCL/MizTrace/releases/download/v0.5.3/');
+  assert.equal(releaseInfo(next, '0.5.3', 'win32', 'x64'), null);
+  assert.equal(releaseInfo({ ...next, draft: true }, '0.5.2', 'win32', 'x64'), null);
+  assert.equal(releaseInfo(next, '0.5.2', 'darwin', 'arm64').feed, null);
+});
 test('检查只获取说明，明确下载后才触发原生更新，重复点击无重复下载', async (t) => {
   const { updater, native, counts } = fixture(t);
   const state = await updater.check();

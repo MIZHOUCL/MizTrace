@@ -11,13 +11,13 @@
 
 ## 下载桌面 App
 
-**下面的固定入口始终下载 GitHub 上标记为 Latest 的最新正式版**，发布新正式版后无需修改链接。测试版、仅推送源码或尚未打包成功的标签不会替换这些下载入口。历史版本和更新内容可在 [Releases](https://github.com/MIZHOUCL/MizTrace/releases) 查看。
+**Windows 固定入口始终下载 GitHub 上标记为 Latest 的最新正式版**，发布新正式版后无需修改链接。测试版、仅推送源码或尚未打包成功的标签不会形成应用内更新。历史版本和更新内容可在 [Releases](https://github.com/MIZHOUCL/MizTrace/releases) 查看。当前发版默认只包含 Windows；Mac 免费使用方式见下表。
 
 | 系统 | 下载入口 |
 | --- | --- |
 | Windows x64 | [下载最新安装程序](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-Windows-x64-Setup.exe) |
-| Mac Apple Silicon（M 系列芯片） | [下载最新 DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-arm64.dmg) |
-| Mac Intel | [下载最新 DMG](https://github.com/MIZHOUCL/MizTrace/releases/latest/download/MizTrace-macOS-x64.dmg) |
+| Mac Apple Silicon（M 系列芯片） | [免费运行源码或构建预览包](./docs/桌面打包与发布.md#免费在自己的-mac-上使用) |
+| Mac Intel | [免费运行源码或构建预览包](./docs/桌面打包与发布.md#免费在自己的-mac-上使用) |
 
 **个人自用免费，企业统一部署、团队共享系统或对外商业服务需购买授权。** 个人独立使用写工作周报并提交给公司也免费。详见 [授权说明](./LICENSING.md)。
 

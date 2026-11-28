@@ -23,7 +23,10 @@ test('桌面 profile 创建前复用旧版 daytrace 数据目录，显式目录�
 test('桌面与核心版本一致，构建包包含所有主进程文件', () => {
   const root = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url)));
   const desktop = JSON.parse(fs.readFileSync(new URL('../desktop/package.json', import.meta.url)));
+  const lock = JSON.parse(fs.readFileSync(new URL('../desktop/package-lock.json', import.meta.url)));
   assert.equal(root.version, desktop.version);
+  assert.equal(lock.version, desktop.version);
+  assert.equal(lock.packages[''].version, desktop.version);
   assert.equal(root.license, 'SEE LICENSE IN LICENSE');
   assert.equal(desktop.license, root.license);
   assert.equal(fs.readFileSync(new URL('../desktop/LICENSE', import.meta.url), 'utf8'), fs.readFileSync(new URL('../LICENSE', import.meta.url), 'utf8'));

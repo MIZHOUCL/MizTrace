@@ -20,7 +20,7 @@ export const AppUpdates = {
     const date = computed(() => state.value?.release?.date ? new Date(state.value.release.date).toLocaleString(lang.value === 'en' ? 'en-US' : 'zh-CN') : '');
     const status = computed(() => ({
       idle: L('检查新版本', 'Check for updates'), checking: L('正在检查新版本…', 'Checking for updates…'),
-      current: L('当前已是最新正式版本', 'You have the latest stable release'),
+      current: L('当前已是最新已发布版本', 'You have the latest published release'),
       'no-release': L('仓库尚未发布正式版本', 'No stable release has been published yet'),
       available: L('发现新版本', 'An update is available'),
       downloading: L('正在下载并准备更新，可以继续使用应用…', 'Downloading and preparing the update. You can keep working…'),
@@ -38,6 +38,7 @@ export const AppUpdates = {
     <div class="modal update-modal">
       <p class="eyebrow">MIZTRACE · APP UPDATE</p><h2 id="update-title">{{ status }}</h2>
       <p class="fine">{{ L('当前版本', 'Current version') }} {{ state.current }}<template v-if="state.release"> → <strong>{{ state.release.version }}</strong></template></p>
+      <p class="fine" v-if="state.phase==='current' || state.phase==='no-release'">{{ L('更新以已发布的安装包为准，功能改进会随新版本提供。', 'Updates become available when a new installer version is published.') }}</p>
       <template v-if="state.release"><p class="fine">{{ L('发布日期：', 'Released: ') }}{{ date }}<span v-if="state.release.bytes"> · {{ (state.release.bytes / 1048576).toFixed(1) }} MB</span></p><article class="md update-notes" v-html="notes"></article></template>
       <progress v-if="state.phase === 'downloading' || state.phase === 'checking'" class="update-progress" :aria-label="status"></progress>
       <p v-if="state.error || localError" class="library-error" role="alert">{{ localError || state.error }}</p>

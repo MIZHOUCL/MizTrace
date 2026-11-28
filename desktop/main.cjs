@@ -146,7 +146,19 @@ async function launch() {
     const updateMenu = Menu.getApplicationMenu().getMenuItemById('check-for-updates');
     if (!updateMenu?.enabled) throw new Error('更新菜单不可用');
     updateMenu.click();
-    const updateDialog = await mainWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => { const deadline = Date.now() + 5000; const check = () => { const title = document.querySelector('#update-title'); if (document.querySelector('.update-overlay') && /最新正式版本|latest stable release/.test(title?.textContent || '')) resolve(true); else if (Date.now() > deadline) reject(new Error('更新菜单未打开检查结果')); else setTimeout(check, 100); }; check(); })`);
+    const updateDialog = await mainWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+      const deadline = Date.now() + 5000;
+      const check = async () => {
+        try {
+          const update = await window.miztraceDesktop.updates.state();
+          const title = document.querySelector('#update-title');
+          if (document.querySelector('.update-overlay') && title?.textContent.trim() && !document.querySelector('.update-progress') && update.phase === 'current' && !update.error) resolve(true);
+          else if (Date.now() > deadline) reject(new Error('更新菜单未打开检查结果'));
+          else setTimeout(check, 100);
+        } catch (e) { reject(e); }
+      };
+      check();
+    })`);
     const saved = await mainWindow.webContents.executeJavaScript(`(async () => {
       const headers = {'content-type':'application/json', 'x-miztrace-token': sessionStorage.getItem('dt_token')};
       const create = await fetch('/api/journals', {method:'POST', headers, body:JSON.stringify({date:'2026-11-27'})});

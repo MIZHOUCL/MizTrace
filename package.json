@@ -1,6 +1,6 @@
 {
   "name": "miztrace",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "MizTrace（密迹）：把今天真实发生过的工作痕迹，整理成一份每一句话都能点回证据的日记",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
