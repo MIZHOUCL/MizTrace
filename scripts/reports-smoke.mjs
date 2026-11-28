@@ -6,8 +6,11 @@ import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import { startServer } from '../src/server/index.js';
 import { DEFAULTS, defaultSessionDirs } from '../src/config.js';
+import { pickReportTemplate } from '../src/report-templates.js';
 const { chromium } = await import(pathToFileURL(process.argv[2]).href);
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-reports-ui-'));
+const oldDataDir = process.env.MIZTRACE_DATA_DIR;
+process.env.MIZTRACE_DATA_DIR = data;
 const cfg = { ...structuredClone(DEFAULTS), setupDone: true, rootsConfigured: true, roots: [data], out: null,
   journalLibrary: { roots: [] }, fileScan: { enabled: false },
   sessionDirs: Object.fromEntries(Object.keys(defaultSessionDirs()).map((k) => [k, [path.join(data, 'missing')]])),
@@ -27,7 +30,9 @@ const reportDeps = { fetchImpl: async (_url, init) => {
   ].map(({ quote, ...f }) => ({ ...f, refs: [input.sources?.[0].ref || 's1'], quotes: [{ ref: input.sources?.[0].ref || 's1', text: quote }] }));
   if (input.sources && scenario === 'partial') facts.push({ ...facts[0], topic: '未经证实的收益', text: '效率提升 99%。' });
   if (input.sources && scenario === 'fallback') { facts.splice(0, facts.length, { ...facts[0], refs: ['unknown'] }); }
-  const output = input.sources ? { facts } : { keep: ['f1', 'f2', 'f3'], highlights: ['f1'], conflicts: [] };
+  const template = pickReportTemplate(cfg);
+  const output = input.sources ? { facts } : { keep: ['f1', 'f2', 'f3'], highlights: ['f1'], conflicts: [],
+    sections: [{ title: template.sections[0], facts: ['f1'] }, { title: template.sections.at(-1), facts: ['f2', 'f3'] }] };
   return { ok: true, text: async () => JSON.stringify({ model: 'fixture-model', choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(output) } }], usage: { prompt_tokens: 500, completion_tokens: 200 } }) };
 } };
 const server = await startServer({ cfg, port: 0, dbFile: path.join(data, 'data.db'), reportDeps });
@@ -48,18 +53,42 @@ try {
   await page.getByRole('button', { name: '加载 / 刷新素材', exact: true }).click();
   await page.locator('.report-source-list input').waitFor();
   assert.equal(await page.locator('.report-source-list input:checked').count(), 1);
+  await page.getByRole('button', { name: '查看 / 编辑提示词', exact: true }).click();
+  assert.ok((await page.getByLabel('报告提示词', { exact: true }).inputValue()).includes('面向主管'));
+  await page.screenshot({ path: path.join(data, 'report-template-builtin.png'), fullPage: true });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: '新建模板', exact: true }).click();
+  await page.getByLabel('模板名称', { exact: true }).fill('团队研发周报');
+  await page.getByLabel('模板说明', { exact: true }).fill('按项目写清方案与交付');
+  await page.getByLabel('章节标题（每行一个）', { exact: true }).fill('方案与交付\n协作与计划');
+  await page.getByLabel('报告提示词', { exact: true }).fill('按项目汇报，优先说明形成的解决方案和代码交付，每项一句话；不因没有后续反馈写成推进中。');
+  assert.equal(await page.evaluate(() => window.dispatchEvent(new Event('miztrace-before-update', { cancelable: true }))), false, '未保存提示词阻止更新重启');
+  await page.setViewportSize({ width: 760, height: 900 });
+  await page.screenshot({ path: path.join(data, 'report-template-custom.png'), fullPage: true });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: '保存模板', exact: true }).click();
+  await page.locator('.report-template-editor').waitFor({ state: 'detached' });
+  assert.equal((await call('GET', 'reports')).templates.at(-1).name, '团队研发周报');
   await page.screenshot({ path: path.join(data, 'report-start.png'), fullPage: true });
   await page.getByRole('button', { name: '预览素材并生成报告 →', exact: true }).click();
   await page.getByRole('heading', { name: '确认本次报告素材', exact: true }).waitFor();
   assert.equal(calls, 0, '素材预览不调用模型');
   await page.locator('.report-preview-modal details summary').first().click();
   assert.ok((await page.locator('.report-preview-modal pre').first().innerText()).includes(raw));
+  await page.locator('.report-prompt-preview > summary').click();
+  assert.ok((await page.locator('.report-prompt-preview').innerText()).includes('不因没有后续反馈写成推进中'));
+  await page.screenshot({ path: path.join(data, 'report-prompts-preview.png'), fullPage: true });
   await page.getByRole('button', { name: '确认发送并生成', exact: true }).click();
   await page.locator('.report-progress').waitFor();
   assert.equal(await page.evaluate(() => window.dispatchEvent(new Event('miztrace-before-update', { cancelable: true }))), false);
   await page.getByRole('button', { name: '编辑报告', exact: true }).waitFor();
   assert.equal(calls, 2);
   assert.ok((await page.locator('.report-document').innerText()).includes('数据平台'));
+  assert.ok((await page.locator('.report-document').innerText()).includes('方案与交付'));
+  assert.ok(!(await page.locator('.report-document').innerText()).includes('推进中'));
+  await page.locator('.report-used-template > summary').click();
+  assert.ok((await page.locator('.report-used-template').innerText()).includes('每项一句话'));
   await page.locator('.report-audit summary').click();
   assert.equal(await page.locator('.report-audit blockquote').count(), 3);
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -95,9 +124,10 @@ try {
   await page.getByLabel('结束日期', { exact: true }).fill('2026-11-30');
   await page.getByRole('button', { name: '加载 / 刷新素材', exact: true }).click();
   await page.getByRole('button', { name: '预览素材并生成报告 →', exact: true }).click();
-  await page.getByRole('button', { name: '使用本地模板', exact: true }).click();
+  await page.getByRole('button', { name: '保存素材汇编（不调用AI）', exact: true }).click();
   await page.locator('.report-document h1').filter({ hasText: '月报 · 资料整理版' }).waitFor();
   assert.equal(calls, 2, '本地模板不调用模型');
+  assert.ok(!(await page.locator('.report-document').innerText()).includes('待填写'));
   assert.equal(await page.locator('.report-history > button').count(), 2);
   scenario = 'partial';
   await page.getByRole('button', { name: '预览素材并生成报告 →', exact: true }).click();
@@ -122,11 +152,12 @@ try {
   assert.match(await page.locator('.library-error').innerText(), /HTTP 503/);
   const callsBeforeRecovery = calls;
   await page.getByRole('button', { name: '保存本地资料整理版', exact: true }).click();
-  await page.getByText('已保存的报告', { exact: true }).waitFor();
+  await page.locator('.report-history > button').nth(4).waitFor();
+  await page.getByText('已保存的资料整理版', { exact: true }).waitFor();
   assert.equal(calls, callsBeforeRecovery, '模型不可用时本地恢复不调用模型');
   assert.equal(await page.locator('.report-history > button').count(), 5);
   assert.equal(await page.locator('.library-error').count(), 0);
   await page.screenshot({ path: path.join(data, 'report-recovered.png'), fullPage: true });
   assert.deepEqual(errors, []);
   console.log('Reports browser smoke passed (mock model):', data);
-} finally { await browser.close(); await server.close(); }
+} finally { await browser.close(); await server.close(); if (oldDataDir === undefined) delete process.env.MIZTRACE_DATA_DIR; else process.env.MIZTRACE_DATA_DIR = oldDataDir; }

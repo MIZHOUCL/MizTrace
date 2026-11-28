@@ -31,7 +31,8 @@ import { sourceDiscovery } from './source-discovery.js';
 import { normalizeLibraryRoots } from '../journal-roots.js';
 import { listLibraryDocuments, readLibraryDocument, createLibraryDocument, saveLibraryDocument, libraryHistory, journalSaveRevision } from '../journal-library.js';
 import { journalError } from '../journal-files.js';
-import { REPORT_TEMPLATES, reportSources, selectedReportSources } from '../reports.js';
+import { reportSources, selectedReportSources } from '../reports.js';
+import { REPORT_TEMPLATES, reportTemplatesOf, pickReportTemplate, normalizeReportTemplates } from '../report-templates.js';
 import { createReport, listReports, readReport, saveReport } from '../report-store.js';
 import { prepareReportPrompt, generateReport, localReport } from '../ai/reports.js';
 
@@ -254,12 +255,24 @@ export async function startServer(opts) {
   const reportPreviews = new Map(), reportJobs = new Map();
   let reportTask = null;
   const reportAiSignature = () => crypto.createHash('sha256').update(JSON.stringify([cfg.ai?.baseUrl, cfg.ai?.model, cfg.ai?.protocol, cfg.ai?.apiKey])).digest('hex');
+  const reportTemplateSignature = (template) => crypto.createHash('sha256').update(JSON.stringify(template)).digest('hex');
+  const reportTemplateSettings = () => ({ templates: reportTemplatesOf(cfg), builtinTemplates: REPORT_TEMPLATES,
+    template: cfg.reports?.template || 'work', templateRevision: reportTemplateSignature(cfg.reports || {}) });
   function checkReportBudget() {
     const usage = aiUsageToday(db, todayLocalDate(cfg.cutoffHour));
     if (cfg.ai?.dailyLimit && usage.calls >= cfg.ai.dailyLimit) throw journalError(`今天已达到 AI 调用上限 ${cfg.ai.dailyLimit}，报告需要分步调用，请调整上限或明天重试。`);
   }
   const api = {
-    async 'GET /api/reports'() { return { reports: listReports(db), templates: REPORT_TEMPLATES }; },
+    async 'GET /api/reports'() { return { reports: listReports(db), ...reportTemplateSettings() }; },
+    async 'PUT /api/reports/templates'(q, body) {
+      if (body.revision !== reportTemplateSettings().templateRevision) throw journalError('报告模板已在其他窗口修改，请重新打开后再保存。', 409, 'TEMPLATES_CHANGED');
+      const reports = { templates: normalizeReportTemplates(body.templates), template: body.template };
+      if (typeof reports.template !== 'string' || !reports.template) throw journalError('请选择有效的报告模板');
+      pickReportTemplate({ reports }, reports.template);
+      saveConfig({ ...cfg, reports });
+      cfg.reports = reports;
+      return reportTemplateSettings();
+    },
     async 'GET /api/reports/document'(q) { return readReport(db, q.get('id')); },
     async 'PUT /api/reports/document'(q, body) { return saveReport(db, body); },
     async 'POST /api/reports/sources'(q, body) {
@@ -274,6 +287,7 @@ export async function startServer(opts) {
       const token = crypto.randomBytes(20).toString('hex');
       reportPreviews.set(token, { prepared, input: { ...prepared.options, sourceIds: body.sourceIds }, created: now, aiSignature: reportAiSignature() });
       return { token, options: prepared.options, sources: prepared.chunks, estTokens: prepared.estTokens,
+        template: prepared.template, instructions: prepared.instructions,
         estimatedCalls: prepared.estimatedCalls, daysCovered: prepared.daysCovered, warnings: prepared.warnings,
         secretHits: prepared.secretHits, aiProblems: aiProblems(cfg.ai), managedDevice: cfg.managedDevice === true,
         model: cfg.ai?.model || '', usage: aiUsageToday(db, todayLocalDate(cfg.cutoffHour)), dailyLimit: cfg.ai?.dailyLimit || 0 };
@@ -282,7 +296,9 @@ export async function startServer(opts) {
       if (reportTask) throw journalError('已有报告正在生成，请等待完成', 409);
       const preview = reportPreviews.get(body.token);
       if (!preview || Date.now() - preview.created > 600_000) throw journalError('素材预览已过期，请重新预览', 409);
+      if (!reportTemplatesOf(cfg).some((t) => t.id === preview.input.template)) throw journalError('模板在预览后已删除，请重新选择模板并预览', 409, 'TEMPLATES_CHANGED');
       const current = selectedReportSources(db, cfg, preview.input);
+      if (reportTemplateSignature(current.template) !== reportTemplateSignature(preview.prepared.template)) throw journalError('模板提示词在预览后已更改，请重新预览', 409, 'TEMPLATES_CHANGED');
       if (current.sources.some((s) => preview.prepared.sources.find((p) => p.id === s.id)?.revision !== s.revision)) throw journalError('素材在预览后已修改，请重新预览', 409, 'SOURCES_CHANGED');
       const mode = body.mode;
       if (!['ai', 'local'].includes(mode)) throw journalError('生成方式无效');

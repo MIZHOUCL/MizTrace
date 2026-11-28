@@ -25,6 +25,8 @@ Open **更新 → 检查更新…** (Updates → Check for updates) in the deskt
 
 Weekly and monthly reports validate quotes and numeric claims, with equivalent numeric formats normalized. A failed claim no longer discards every valid fact: incomplete results are clearly labeled for review with diagnostic details and the original sources. If no AI facts can be used, an editable source draft is saved. Failed validation and retries count toward usage limits.
 
+Report templates have visible, editable prompts and section titles. Edit built-in templates or create and duplicate your own; both extraction and review use the selected prompt, which is previewed before sending and saved with the report. Missing completion feedback no longer defaults to “in progress”: reports describe recorded actions, solutions and outcomes without assuming deployment or verification. The offline option saves a dated source compilation, without running template prompts or adding blank sections.
+
 The sidebar now includes Today and Journal library, with a collapse button that remembers your preference. Browse saved entries, generated drafts and UTF-8 Markdown files from your diary folder; search titles, dates and filenames; edit and preview Markdown; save previous versions or export `.md` files. New entries work without AI setup or an output folder. Source editing supports `Ctrl/Cmd+S`, bold/italic shortcuts and undo/redo. External file changes trigger a conflict message without overwriting your edits.
 
 The Electron app bundles its own Node runtime. Windows x64, macOS arm64 and macOS x64 builds are configured in `.github/workflows/desktop-release.yml`. Run `npm run desktop:install`, then `npm run desktop:dev` or `npm run desktop:make`. Installers appear under `desktop/out/`.

@@ -60,6 +60,15 @@ small { font-size: 12px; }
 .report-step button { margin-left: auto; font-size: 11px; }
 .report-section-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 28px; }
 .report-section-chips span { border: 1px solid var(--line); border-radius: 4px; font-size: 10px; color: var(--muted); padding: 2px 6px; }
+.report-template-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.report-template-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.report-template-editor label { display: grid; gap: 7px; margin: 16px 0; font-size: 13px; }
+.report-template-editor input, .report-template-editor textarea { box-sizing: border-box; width: 100%; min-width: 0; }
+.report-template-editor textarea { resize: vertical; font: 13px/1.7 var(--sans); }
+.report-template-editor form > footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid var(--line); }
+.report-used-template { border-top: 1px solid var(--line); padding: 20px 28px; font-size: 12px; }
+.report-used-template summary { cursor: pointer; }
+.report-used-template pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; font: 12px/1.7 var(--sans); }
 .report-presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
 .report-presets .btn { font-size: 11px; }
 .report-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }

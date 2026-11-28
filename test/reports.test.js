@@ -9,7 +9,8 @@ import { reportOptions, reportSources, selectedReportSources } from '../src/repo
 import { createReport, saveReport, readReport } from '../src/report-store.js';
 import { prepareReportPrompt, validateReportFacts, validateReportReview, generateReport, renderReport, localReport } from '../src/ai/reports.js';
 import { startServer } from '../src/server/index.js';
-import { DEFAULTS } from '../src/config.js';
+import { DEFAULTS, loadConfig } from '../src/config.js';
+import { REPORT_TEMPLATES, reportTemplatesOf, normalizeReportTemplates, pickReportTemplate } from '../src/report-templates.js';
 import { todayLocalDate } from '../src/time.js';
 
 const options = { start: '2026-11-23', end: '2026-11-27', kind: 'week', template: 'work' };
@@ -91,6 +92,68 @@ test('两阶段生成成功：结构固定、项目分开、带引句、调用�
   assert.match(result.markdown, /\[S1\]/); assert.equal(result.metadata.facts.length, 2); assert.ok(phases.some((s) => s.includes('审核')));
   assert.ok(!deps.requests[0].messages[1].content.includes('journal:2026-11-26'), '内部文件标识不发送给模型');
 });
+test('没有完成反馈不等于推进中：方案作为产出呈现，明确等待和阻塞继续保留', () => {
+  const check = (quote, status = 'progress') => validateReportFacts({ facts: [card({ status, text: '形成接口重试修复方案。', quotes: [{ ref: 's1', text: quote }] })] }, [{ ref: 's1', date: source.date, content: quote }])[0];
+  for (const quote of ['形成接口重试修复方案，未记录修正后的验证结果。', '接口重试已有修复方法，用户没有反馈是否完成。', '推进中：定位失败响应导致重复重传，修改已提交，未记录验证结果。']) {
+    assert.equal(check(quote).status, 'activity', quote);
+    assert.equal(check(quote, 'blocked').status, 'activity', quote);
+  }
+  assert.equal(check('修复方案已经提交，仍在等待测试环境。').status, 'progress');
+  assert.equal(check('未记录验证结果，但仍在等待设备重新连接。', 'blocked').status, 'blocked');
+  const fact = { ...check('形成接口重试修复方案。'), id: 'f1' };
+  const report = renderReport(prepared(), [fact], { keep: ['f1'], highlights: ['f1'], conflicts: [] }).markdown;
+  assert.match(report.split('## 项目进展')[0], /形成接口重试修复方案/);
+  assert.doesNotMatch(report, /推进中|已完成：|待验证/);
+});
+
+test('报告模板独立于日记模板，内置可覆盖和恢复，非法或超长输入不静默保存', () => {
+  const builtin = REPORT_TEMPLATES[0];
+  assert.deepEqual(normalizeReportTemplates(REPORT_TEMPLATES), []);
+  const custom = { ...builtin, id: 'my-report', name: '我的周报', prompt: '突出本周形成的解决方法，简洁直接。', sections: ['本期产出', '协作事项'] };
+  const stored = normalizeReportTemplates([{ ...builtin, prompt: '先写结论。' }, custom]);
+  const cfg = { ai: { templates: [{ id: 'diary', text: '日记专用要求' }] }, reports: { templates: stored } };
+  assert.equal(reportTemplatesOf(cfg).length, 4);
+  assert.equal(pickReportTemplate(cfg, 'work').modified, true);
+  assert.equal(reportOptions({ ...options, template: custom.id }, cfg).template, custom.id);
+  assert.equal(reportTemplatesOf({ reports: { templates: [] } })[0].prompt, builtin.prompt);
+  assert.equal(reportTemplatesOf(cfg).some((t) => t.id === 'diary'), false);
+  for (const patch of [{ prompt: '' }, { prompt: '长'.repeat(6001) }, { sections: [] }, { sections: ['重复', '重复'] }, { id: '../bad' }]) assert.throws(() => normalizeReportTemplates([{ ...custom, ...patch }]));
+});
+
+test('自定义提示词用于两阶段并按自定义章节排版，历史保留本次提示词快照', async () => {
+  const template = { id: 'my-report', name: '给团队的汇报', prompt: '突出解决方法，按项目写，每项一句话。', description: '', sections: ['本期产出', '需要协作'] };
+  const p = prepareReportPrompt({ options: { ...reportOptions(options), template: template.id }, template, sources: [source], warnings: [] });
+  const deps = model((_body, n) => n === 1 ? { facts: [card(), card({ project: '报表项目', topic: '导入', status: 'blocked', text: '导入接口仍在等待测试环境。', quotes: [{ ref: 's1', text: '导入接口仍在等待测试环境。' }] })] }
+    : { keep: ['f1', 'f2'], highlights: ['f1'], conflicts: [], sections: [{ title: '本期产出', facts: ['f1'] }, { title: '需要协作', facts: ['f2'] }] });
+  const result = await generateReport({ ai }, p, deps);
+  assert.match(result.markdown, /## 本期产出/); assert.match(result.markdown, /## 需要协作/);
+  assert.doesNotMatch(result.markdown, /## 项目进展与成果/);
+  assert.equal(deps.requests[0].messages[0].content, p.instructions.extract);
+  assert.equal(deps.requests[1].messages[0].content, p.instructions.review);
+  for (const request of deps.requests) assert.ok(request.messages[0].content.includes(template.prompt));
+  template.prompt = '后来修改的提示词';
+  assert.equal(result.metadata.template.prompt, '突出解决方法，按项目写，每项一句话。');
+  assert.equal(result.metadata.quality, 'checked');
+});
+
+test('模板章节不能引入新事实、遗漏已选事实或重复展示，定制模板必须返回章节', () => {
+  const facts = [{ ...card(), id: 'f1' }, { ...card({ status: 'activity' }), id: 'f2' }];
+  const template = { sections: ['本期产出'] }, review = { keep: ['f1', 'f2'], highlights: [], conflicts: [] };
+  for (const sections of [[{ title: '本期产出', facts: ['f9'] }], [{ title: '本期产出', facts: ['f1'] }], [{ title: '其他标题', facts: ['f1', 'f2'] }], [{ title: '本期产出', facts: ['f1', 'f1'] }]]) assert.throws(() => validateReportReview({ ...review, sections }, facts, template));
+  assert.throws(() => validateReportReview(review, facts, template), /sections/);
+  assert.deepEqual(validateReportReview({ ...review, sections: [{ title: '本期产出', facts: ['f1', 'f2'] }] }, facts, template).sections[0].facts, ['f1', 'f2']);
+});
+
+test('本地汇编直接保留素材，没有空白待填模板；模板中的密钥同样阻止 AI 外发', async () => {
+  const result = localReport(prepared());
+  for (const line of content.split('\n')) assert.ok(result.markdown.includes(line));
+  assert.doesNotMatch(result.markdown, /待填写/);
+  assert.match(result.markdown, /未执行模板提示词/);
+  const p = prepareReportPrompt({ options, sources: [source], template: { ...REPORT_TEMPLATES[0], prompt: 'sk-proj-' + 'a'.repeat(30) } });
+  const deps = model(() => { throw new Error('不应调用'); });
+  await assert.rejects(generateReport({ ai }, p, deps), /密钥/);
+  assert.equal(deps.requests.length, 0);
+});
 test('坏引用仅重试一次，随后返回明确标注的原文整理版，每次调用均记账', async () => {
   const deps = model(() => ({ facts: [card({ refs: ['not-real'] })] })), logs = [];
   const result = await generateReport({ ai }, prepared(), { ...deps, onCall: (_r, ok) => logs.push(ok) });
@@ -105,6 +168,14 @@ test('纠正后成功且所有调用的 token 均统计；重复事实去重', a
   const deps = model((_body, n) => n === 1 ? '不是 JSON' : n === 2 ? { facts: [card(), card()] } : { keep: ['f1'], highlights: ['f1'], conflicts: [] });
   const result = await generateReport({ ai }, prepared(), deps);
   assert.equal(result.metadata.calls, 3); assert.equal(result.metadata.usage.input, 300); assert.equal(result.metadata.facts.length, 1);
+});
+test('纠错成功后不叠加早先已被替换的事实表述', async () => {
+  const deps = model((_body, n) => n === 1 ? { facts: [card({ text: '完成日记目录管理。' }), card({ topic: '收益', text: '效率提升 99%。' })] }
+    : n === 2 ? { facts: [card()] } : { keep: ['f1'], highlights: ['f1'], conflicts: [] });
+  const result = await generateReport({ ai }, prepared(), deps);
+  const reviewInput = JSON.parse(deps.requests[2].messages[1].content);
+  assert.equal(reviewInput.length, 1); assert.equal(reviewInput[0].text, card().text);
+  assert.equal(result.metadata.facts.length, 1); assert.equal(result.metadata.quality, 'checked');
 });
 test('空白事实保留原文供整理，受管设备与密钥熔断均零外发', async () => {
   const deps = model(() => ({ facts: [] }));
@@ -205,4 +276,31 @@ test('API 预览绑定素材版本、后台生成保存、认证与每日调用�
   assert.equal((await fetch(`http://127.0.0.1:${server.port}/api/reports`)).status, 401);
   assert.equal((await call('GET', 'reports')).reports.length, 1);
   assert.ok(newer.revision);
+});
+
+test('报告模板 API 持久化、冲突保护、预览失效和恢复内置，不更改日记模板', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miztrace-report-template-api-'));
+  const oldDataDir = process.env.MIZTRACE_DATA_DIR; process.env.MIZTRACE_DATA_DIR = dir;
+  const cfg = structuredClone(DEFAULTS);
+  cfg.ai.templates = [{ id: 'my-diary', name: '日记', text: '日记提示词' }];
+  const server = await startServer({ cfg, port: 0, dbFile: path.join(dir, 'data.db') });
+  t.after(async () => { await server.close(); if (oldDataDir === undefined) delete process.env.MIZTRACE_DATA_DIR; else process.env.MIZTRACE_DATA_DIR = oldDataDir; fs.rmSync(dir, { recursive: true, force: true }); });
+  const call = (method, name, body) => server.api[`${method} /api/${name}`](new URLSearchParams(), body);
+  const initial = await call('GET', 'reports');
+  const custom = { ...REPORT_TEMPLATES[0], id: 'custom', name: '自定义汇报', prompt: '仅保留重要产出，按部门汇报。', sections: ['重要产出', '协作事项'] };
+  const changed = await call('PUT', 'reports/templates', { templates: [...initial.templates, custom], template: custom.id, revision: initial.templateRevision });
+  assert.equal(loadConfig().reports.templates[0].prompt, custom.prompt);
+  assert.equal(loadConfig().ai.templates[0].id, 'my-diary');
+  await assert.rejects(call('PUT', 'reports/templates', { templates: [], template: 'work', revision: initial.templateRevision }), { code: 'TEMPLATES_CHANGED' });
+  const doc = (await call('POST', 'journals', { date: source.date })).document;
+  await call('PUT', 'journals/document', { ...doc, markdown: content });
+  const preview = await call('POST', 'reports/preview', { ...options, template: custom.id, sourceIds: [doc.id] });
+  assert.equal(preview.template.prompt, custom.prompt); assert.ok(preview.instructions.extract.includes(custom.prompt));
+  await call('PUT', 'reports/templates', { templates: changed.templates.map((t) => t.id === custom.id ? { ...t, prompt: '新的汇报要求' } : t), template: custom.id, revision: changed.templateRevision });
+  await assert.rejects(call('POST', 'reports/generate', { token: preview.token, mode: 'local' }), { code: 'TEMPLATES_CHANGED' });
+  const latest = await call('GET', 'reports');
+  const restored = await call('PUT', 'reports/templates', { templates: [], template: 'work', revision: latest.templateRevision });
+  assert.equal(restored.templates.length, REPORT_TEMPLATES.length);
+  assert.equal(loadConfig().reports.templates.length, 0);
+  assert.equal((await fetch(`http://127.0.0.1:${server.port}/api/reports/templates`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 401);
 });

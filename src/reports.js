@@ -3,25 +3,21 @@ import { getDayState } from './db.js';
 import { listLibraryDocuments, readLibraryDocument, validateJournalDate } from './journal-library.js';
 import { digest, journalError } from './journal-files.js';
 import { stripAnnotations } from './journal.js';
+import { pickReportTemplate } from './report-templates.js';
 
-export const REPORT_TEMPLATES = [
-  { id: 'work', name: '工作汇报', description: '适合发给主管：重点进展、项目成果、风险与下一步。', sections: ['重点进展', '项目进展与成果', '问题与风险', '下一步计划'] },
-  { id: 'engineering', name: '研发交付', description: '适合开发协作：交付、验证进展、技术问题与待办。', sections: ['交付摘要', '研发进展', '技术问题与风险', '后续工作'] },
-  { id: 'review', name: '个人复盘', description: '适合成长记录：本期进展、经验与发现、卡点、行动。', sections: ['本期回顾', '做了什么', '经验与发现', '遇到的问题', '接下来的行动'] },
-];
-export function reportOptions(input) {
+export { REPORT_TEMPLATES } from './report-templates.js';
+export function reportOptions(input, cfg = {}) {
   const start = validateJournalDate(input.start), end = validateJournalDate(input.end);
   const days = Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1;
   if (days < 1 || days > 62) throw journalError('开始日期不能晚于结束日期，一次最多汇总 62 天');
   const kind = input.kind;
   if (!['week', 'month'].includes(kind)) throw journalError('请选择周报或月报');
-  const template = REPORT_TEMPLATES.find((t) => t.id === input.template);
-  if (!template) throw journalError('请选择有效的报告模板');
+  const template = pickReportTemplate(cfg, input.template);
   return { start, end, kind, template: template.id, days, lang: input.lang === 'en' ? 'en' : 'zh' };
 }
 const normalized = (s) => stripAnnotations(s).replace(/\r\n/g, '\n').trim();
 export function reportSources(db, cfg, input) {
-  const options = reportOptions(input), { start, end } = options;
+  const options = reportOptions(input, cfg), { start, end } = options;
   const listed = listLibraryDocuments(db, cfg);
   const sources = [], warnings = [...listed.warnings], seen = new Map();
   const candidates = listed.documents.filter((d) => d.kind !== 'report' && d.date >= start && d.date <= end)
@@ -50,7 +46,7 @@ export function reportSources(db, cfg, input) {
   if (undated) warnings.push(`${undated} 篇 Markdown 未标注日期，不自动归入本期。文件名以 YYYY-MM-DD 开头后即可识别。`);
   if (duplicateCount) warnings.push(`已合并 ${duplicateCount} 份同日相同正文的副本。`);
   if (sources.some((s) => !s.selected)) warnings.push('同日已有记录的生成草稿默认不选，避免重复或使用旧版本；可手动切换。');
-  return { options, sources, warnings };
+  return { options, template: pickReportTemplate(cfg, options.template), sources, warnings };
 }
 export function selectedReportSources(db, cfg, input) {
   if (!Array.isArray(input.sourceIds) || !input.sourceIds.length || input.sourceIds.length > 120 || input.sourceIds.some((s) => typeof s !== 'string')) throw journalError('请选择 1–120 份素材');

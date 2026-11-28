@@ -188,6 +188,7 @@ export const DEFAULTS = {
     templates: [],
   },
   journalLibrary: { roots: [] },
+  reports: { template: 'work', templates: [] },
   ui: { port: 0 },
 };
 
@@ -324,6 +325,8 @@ export function loadConfig() {
   cfg.ui = { ...DEFAULTS.ui, ...(onDisk.ui || {}) };
   // 日记库目录独立配置。旧导出目录不会自动获得日记库读写授权。
   cfg.journalLibrary = { roots: Array.isArray(onDisk.journalLibrary?.roots) ? onDisk.journalLibrary.roots.filter((p) => typeof p === 'string') : [] };
+  cfg.reports = { template: typeof onDisk.reports?.template === 'string' ? onDisk.reports.template : 'work',
+    templates: Array.isArray(onDisk.reports?.templates) ? onDisk.reports.templates : [] };
   if (!Array.isArray(cfg.excludeProjects)) cfg.excludeProjects = [];
   if (!Array.isArray(cfg.projectRules)) cfg.projectRules = [];
   cfg.projectRules = cfg.projectRules

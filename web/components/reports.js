@@ -1,9 +1,11 @@
 import { api } from '../lib/api.js';
 import { renderMd } from '../lib/md.js';
 import { lang } from '../lib/i18n.js';
+import { ReportTemplateEditor } from './report-template-editor.js';
 const { ref, computed, watch, onBeforeUnmount } = window.Vue;
 
 export const Reports = {
+  components: { ReportTemplateEditor },
   props: { active: Boolean, today: String },
   emits: ['edit', 'settings'],
   setup(props, { emit }) {
@@ -13,6 +15,8 @@ export const Reports = {
     const loadedPeriod = ref(''), loading = ref(false), previewing = ref(false), preview = ref(null);
     const busy = ref(false), phase = ref(''), error = ref(''), result = ref(null), message = ref('');
     const sourceCollapsed = ref(false), elapsed = ref(0);
+    const templateEditor = ref(null), templateSaving = ref(false), templateError = ref(''), builtinTemplates = ref([]);
+    let templateRevision = '', templatesLoaded = false;
     let pollTimer, clockTimer, pollFailures = 0, disposed = false, sourceRequest = 0;
     const period = computed(() => `${kind.value}:${start.value}:${end.value}`);
     const stale = computed(() => period.value !== loadedPeriod.value);
@@ -38,6 +42,30 @@ export const Reports = {
     async function refreshHistory() {
       const data = await api('GET', '/api/reports');
       templates.value = data.templates; history.value = data.reports;
+      builtinTemplates.value = data.builtinTemplates; templateRevision = data.templateRevision;
+      if (!templatesLoaded || !data.templates.some((t) => t.id === template.value)) template.value = data.templates.some((t) => t.id === data.template) ? data.template : 'work';
+      templatesLoaded = true;
+    }
+    function editTemplate(mode = 'edit') {
+      templateError.value = '';
+      const base = currentTemplate.value;
+      const isNew = mode !== 'edit';
+      const item = mode === 'new' ? { id: '', name: '', description: '', sections: ['本期产出', '问题与后续'], prompt: '' } : JSON.parse(JSON.stringify(base));
+      if (isNew) { item.id = 'report-' + crypto.randomUUID().slice(0, 20); if (mode === 'copy') item.name = (item.name + '（副本）').slice(0, 40); }
+      templateEditor.value = { item, isNew, builtin: !isNew && builtinTemplates.value.find((t) => t.id === item.id), revision: templateRevision };
+    }
+    async function saveTemplate(item, action = 'save') {
+      templateSaving.value = true; templateError.value = '';
+      try {
+        const list = templates.value.filter((t) => t.id !== templateEditor.value.item.id);
+        if (action === 'save') list.push(item);
+        const selected = action === 'delete' ? 'work' : templateEditor.value.item.id;
+        const data = await api('PUT', '/api/reports/templates', { templates: list, template: selected, revision: templateEditor.value.revision });
+        templates.value = data.templates; builtinTemplates.value = data.builtinTemplates; templateRevision = data.templateRevision;
+        template.value = selected; templateEditor.value = null; preview.value = null;
+        message.value = L('模板已保存', 'Template saved');
+      } catch (e) { templateError.value = e.message; if (e.code === 'TEMPLATES_CHANGED') await refreshHistory().catch(() => {}); }
+      finally { templateSaving.value = false; }
     }
     async function loadSources() {
       const seq = ++sourceRequest, requested = period.value;
@@ -112,8 +140,8 @@ export const Reports = {
     watch([() => props.active, () => props.today], async ([active, today]) => {
       if (!active || !today) return;
       try {
-        if (!start.value) { preset('this-week'); await loadSources(); }
         await refreshHistory();
+        if (!start.value) { preset('this-week'); await loadSources(); }
         if (result.value) await open(result.value.id);
         const pending = sessionStorage.getItem('mt_report_job');
         if (pending && !busy.value) track(pending);
@@ -123,6 +151,7 @@ export const Reports = {
     onBeforeUnmount(() => { disposed = true; clearTimeout(pollTimer); clearInterval(clockTimer); window.removeEventListener('beforeunload', guard); window.removeEventListener('miztrace-before-update', guard); });
     return { L, kind, start, end, template, templates, history, sources, warnings, chosen, loading, previewing, preview,
       busy, phase, error, result, message, sourceCollapsed, elapsed, stale, selectedDays, currentTemplate, html, aiBlocked,
+      templateEditor, templateSaving, templateError, editTemplate, saveTemplate,
       kindName, preset, loadSources, prepare, generate, recoverLocal, open, download, copy, edit: () => emit('edit', result.value), settings: () => emit('settings') };
   },
   template: `
@@ -138,7 +167,9 @@ export const Reports = {
           <div class="report-presets"><button class="btn small" @click="preset('this-week')">{{ L('本周', 'This week') }}</button><button class="btn small" @click="preset('last-week')">{{ L('上周', 'Last week') }}</button><button class="btn small" @click="preset('this-month')">{{ L('本月', 'This month') }}</button><button class="btn small" @click="preset('last-month')">{{ L('上月', 'Last month') }}</button></div>
           <div class="report-dates"><label>{{ L('类型', 'Type') }}<select v-model="kind"><option value="week">{{ L('周报', 'Weekly') }}</option><option value="month">{{ L('月报', 'Monthly') }}</option></select></label><label>{{ L('开始日期', 'Start') }}<input type="date" v-model="start"></label><label>{{ L('结束日期', 'End') }}<input type="date" v-model="end"></label></div>
           <label class="report-template-label">{{ L('报告模板', 'Template') }}<select v-model="template"><option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option></select></label>
-          <p class="fine">{{ currentTemplate?.description }}</p><div class="report-section-chips"><span v-for="s in currentTemplate?.sections" :key="s">{{ s }}</span></div>
+          <p class="fine">{{ currentTemplate?.description }}</p>
+          <div class="report-template-actions"><button class="btn small" @click="editTemplate()" :disabled="!currentTemplate">{{ L('查看 / 编辑提示词', 'View / edit prompt') }}</button><button class="btn small" @click="editTemplate('new')">{{ L('新建模板', 'New template') }}</button><button class="btn small quiet" @click="editTemplate('copy')" :disabled="!currentTemplate">{{ L('复制模板', 'Duplicate') }}</button></div>
+          <div class="report-section-chips"><span v-for="s in currentTemplate?.sections" :key="s">{{ s }}</span></div>
           <div class="report-step"><b>02</b><h2>{{ L('选择事实素材', 'Select sources') }}</h2><button class="btn small quiet" @click="sourceCollapsed=!sourceCollapsed" :aria-expanded="!sourceCollapsed">{{ sourceCollapsed ? L('展开素材', 'Expand') : L('收起素材', 'Collapse') }}</button></div>
           <p class="fine">{{ L('读取日记库中带日期的记录和已保存手记，不重新扫描历史工作目录。', 'Uses dated library entries and saved notes without rescanning historical work.') }}</p>
           <div class="report-source-tools"><button class="btn small" @click="loadSources" :disabled="loading">{{ loading ? L('读取中…', 'Loading…') : L('加载 / 刷新素材', 'Load / refresh sources') }}</button><span>{{ chosen.length }} {{ L('份 · 覆盖', 'selected ·') }} {{ selectedDays }} {{ L('天', 'days') }}</span></div>
@@ -149,19 +180,20 @@ export const Reports = {
             <p v-else-if="!loading" class="report-no-sources">{{ L('本期还没有可用素材。先在日记库保存记录，或在今日记录添加手记。外部 Markdown 文件名需以 YYYY-MM-DD 开头。', 'Save journals or notes first. External Markdown filenames must begin with YYYY-MM-DD.') }}</p>
           </template>
           <button class="btn primary report-generate" @click="prepare" :disabled="stale || !chosen.length || loading || previewing">{{ previewing ? L('准备预览…', 'Preparing…') : L('预览素材并生成报告', 'Preview sources and generate') }} →</button>
-          <p class="fine">{{ L('先预览发送内容。AI 分步提炼并审核；也可使用不联网的本地模板。', 'Review what will be sent. AI extracts and reviews facts; an offline template is also available.') }}</p>
+          <p class="fine">{{ L('先预览提示词和发送内容，AI 按所选模板提炼并汇总；不调用 AI 时可仅保存素材汇编。', 'Preview prompts and sources. AI follows your template; you can also save a source compilation without AI.') }}</p>
         </fieldset>
         <details class="report-history" open><summary>{{ L('报告历史', 'Report history') }} · {{ history.length }}</summary><p class="fine" v-if="!history.length">{{ L('生成后自动保存，也会出现在日记库。', 'Reports save automatically and appear in the library.') }}</p><button v-for="r in history" :key="r.id" :class="{selected:result?.id===r.id}" @click="open(r.id)"><strong>{{ r.title }}</strong><small>{{ r.updatedAt.slice(0, 10) }}</small></button></details>
       </section>
       <section class="report-output">
         <template v-if="result">
-          <header class="report-output-tools"><strong>{{ result.metadata.quality === 'partial' ? L('已保存的待核对草稿', 'Saved draft for review') : result.metadata.quality === 'fallback' ? L('已保存的资料整理版', 'Saved source draft') : L('已保存的报告', 'Saved report') }}</strong><span class="spacer"></span><button class="btn small" @click="edit">{{ L('编辑报告', 'Edit report') }}</button><button class="btn small" @click="copy">{{ L('复制', 'Copy') }}</button><button class="btn small" @click="download">{{ L('导出 .md', 'Export .md') }}</button></header>
+          <header class="report-output-tools"><strong>{{ result.metadata.quality === 'partial' ? L('已保存的待核对草稿', 'Saved draft for review') : result.metadata.source.startsWith('local') ? L('已保存的资料整理版', 'Saved source draft') : L('已保存的报告', 'Saved report') }}</strong><span class="spacer"></span><button class="btn small" @click="edit">{{ L('编辑报告', 'Edit report') }}</button><button class="btn small" @click="copy">{{ L('复制', 'Copy') }}</button><button class="btn small" @click="download">{{ L('导出 .md', 'Export .md') }}</button></header>
           <p class="fine report-result-meta" role="status">{{ result.metadata.source.startsWith('local') ? L('本地资料整理版 · 请根据原文编辑', 'Source draft · edit using the originals') : result.metadata.model }}<template v-if="result.metadata.usage"> · {{ result.metadata.calls }} {{ L('次调用', 'calls') }} · {{ result.metadata.usage.input + result.metadata.usage.output }} tokens</template><template v-if="result.metadata.edited"> · {{ L('已手动编辑，原引句供复核参考', 'Manually edited; original citations are for review') }}</template> {{ message }}</p>
           <aside v-if="result.metadata.warnings?.length" class="report-quality" role="status"><strong>{{ result.metadata.quality === 'fallback' ? L('AI 内容未通过检查，已保留原文', 'AI output could not be validated; sources are saved') : L('部分内容未能核对，请补充后再分享', 'Some content needs review before sharing') }}</strong><p>{{ result.metadata.quality === 'fallback' ? L('这是一份可编辑的资料整理版，不是已完成的 AI 报告。你可以直接编辑，也可以重新预览后重试。', 'This is an editable source draft, not a completed AI report. Edit it or preview again to retry.') : L('通过检查的内容已保留。未能核对的模型说法未放入正文，可能存在遗漏；请对照下方检查信息和原文编辑。', 'Validated content is retained. Unvalidated claims were excluded, so review the sources for omissions.') }}</p><details><summary>{{ L('查看生成检查与所选原文', 'Generation checks and selected sources') }}</summary><ul><li v-for="(w,i) in result.metadata.warnings" :key="i">{{ w.refs?.map(r=>r.toUpperCase()).join(' / ') }} · {{ w.message }}</li></ul><details v-for="s in result.metadata.sources" :key="s.ref"><summary>[{{ s.ref.toUpperCase() }}] {{ s.date }} · {{ s.title }}</summary><pre>{{ s.content }}</pre></details></details></aside>
           <article class="md report-document" v-html="html"></article>
+          <details class="report-used-template" v-if="result.metadata.template"><summary>{{ L('本次模板与提示词', 'Template and prompts used') }} · {{ result.metadata.template.name }}</summary><pre>{{ result.metadata.template.prompt }}</pre><details v-if="result.metadata.instructions"><summary>{{ L('完整提炼提示词', 'Full extraction instructions') }}</summary><pre>{{ result.metadata.instructions.extract }}</pre></details><details v-if="result.metadata.instructions"><summary>{{ L('完整汇总提示词', 'Full review instructions') }}</summary><pre>{{ result.metadata.instructions.review }}</pre></details><p class="fine" v-if="result.metadata.source.startsWith('local')">{{ L('此版本仅汇集素材，未调用模型或执行上述提示词。', 'This draft only compiles sources; the prompts were not run.') }}</p></details>
           <details class="report-audit" v-if="result.metadata.facts?.length"><summary>{{ L('核对事实与原文引句', 'Review facts against source quotes') }} · {{ result.metadata.facts.length }}</summary><div v-for="(f,i) in result.metadata.facts" :key="i"><strong>{{ f.project }} / {{ f.topic }}</strong><p>{{ f.text }}</p><blockquote v-for="(q,j) in f.quotes" :key="j">[{{ q.ref.toUpperCase() }}] {{ q.text }}</blockquote></div><p class="fine">{{ L('引用匹配不等于语义完全正确；分享前请核对成果状态和敏感内容。', 'Quote matching cannot guarantee semantic accuracy. Review before sharing.') }}</p></details>
         </template>
-        <div v-else class="report-welcome"><span aria-hidden="true">▥</span><h2>{{ L('一份有依据、有重点的汇报', 'A focused report with traceable sources') }}</h2><p>{{ L('成果按项目归类，已完成与推进中分开；未解决的问题和明确计划单独整理。', 'Group outcomes by project and distinguish completed work, ongoing work, issues and plans.') }}</p><ol><li>{{ L('选择日期与模板', 'Choose a period and template') }}</li><li>{{ L('勾选本期日记与手记', 'Select journals and notes') }}</li><li>{{ L('预览、生成，核对后分享', 'Preview, generate and review before sharing') }}</li></ol><p class="fine">{{ L('不补写缺失的成果数字，不用套话填满空白。', 'No invented metrics or filler for missing information.') }}</p></div>
+        <div v-else class="report-welcome"><span aria-hidden="true">▥</span><h2>{{ L('一份有依据、有重点的汇报', 'A focused report with traceable sources') }}</h2><p>{{ L('写清做了什么、形成了什么方案与结果。只有明确仍在处理的问题才列为后续事项。', 'Describe actions, solutions and outcomes. List ongoing work only when the records say it remains open.') }}</p><ol><li>{{ L('选择日期，查看或编写模板提示词', 'Choose a period and edit your template prompt') }}</li><li>{{ L('勾选本期日记与手记', 'Select journals and notes') }}</li><li>{{ L('预览、生成，核对后分享', 'Preview, generate and review before sharing') }}</li></ol><p class="fine">{{ L('不补写缺失的成果数字，不用套话填满空白。', 'No invented metrics or filler for missing information.') }}</p></div>
       </section>
     </div>
     <div class="report-overlay" v-if="preview" @click.self="!busy && (preview=null)"><section class="report-preview-modal" role="dialog" aria-modal="true" aria-labelledby="report-preview-title">
@@ -171,8 +203,11 @@ export const Reports = {
       <p class="fine">{{ preview.model || L('尚未配置模型', 'No model configured') }} · {{ L('预计至少', 'At least') }} {{ preview.estimatedCalls }} {{ L('次调用；校验不通过时每步最多重试一次。提炼输入约', 'calls; each step may retry once. Extraction input approximately') }} {{ preview.estTokens }} tokens{{ L('，另计审核与输出。', '; review and output are additional.') }}</p>
       <p v-if="aiBlocked" class="library-error">{{ preview.managedDevice ? L('受管设备已禁用 AI 外发。', 'AI disabled on managed device.') : preview.secretHits.length ? L('素材中检测到疑似密钥，已阻止发送。请修改原文后重新预览。', 'Possible secrets detected. Edit sources and preview again.') : preview.aiProblems.length ? preview.aiProblems.join('、') : L('今日剩余调用次数不足。', 'Insufficient daily call allowance.') }}</p>
       <details v-for="s in preview.sources" :key="s.ref"><summary>[{{ s.ref.toUpperCase() }}] {{ s.date }} · {{ s.title }}</summary><pre>{{ s.content }}</pre></details>
+      <details class="report-prompt-preview"><summary>{{ L('查看本次提示词', 'View prompts for this report') }} · {{ preview.template.name }}</summary><p>{{ L('模板提示词会用于两个步骤。汇总时的事实卡片由提炼结果产生；校验失败重试时会附加具体纠错信息。', 'The template is applied to both stages. Review receives extracted fact cards; retries append validation feedback.') }}</p><h3>{{ L('模板要求', 'Template prompt') }}</h3><pre>{{ preview.template.prompt }}</pre><details><summary>{{ L('完整提炼提示词', 'Full extraction instructions') }}</summary><pre>{{ preview.instructions.extract }}</pre></details><details><summary>{{ L('完整汇总提示词', 'Full review instructions') }}</summary><pre>{{ preview.instructions.review }}</pre></details></details>
       <p v-if="error" class="library-error" role="alert">{{ error }}</p>
-      <footer><button class="btn" @click="generate('local')" :disabled="busy">{{ L('使用本地模板', 'Use offline template') }}</button><button class="btn" v-if="preview.aiProblems.length" @click="preview=null;settings()">{{ L('配置模型', 'Configure model') }}</button><span class="spacer"></span><button class="btn primary" @click="generate('ai')" :disabled="busy || aiBlocked">{{ busy ? L('正在开始…', 'Starting…') : L('确认发送并生成', 'Send and generate') }}</button></footer>
+      <p class="fine">{{ L('“保存素材汇编”只按日期汇集所选正文，不调用 AI，不执行模板提示词。', 'Saving a source compilation collects selected text by date, without AI or template instructions.') }}</p>
+      <footer><button class="btn" @click="generate('local')" :disabled="busy">{{ L('保存素材汇编（不调用AI）', 'Save sources without AI') }}</button><button class="btn" v-if="preview.aiProblems.length" @click="preview=null;settings()">{{ L('配置模型', 'Configure model') }}</button><span class="spacer"></span><button class="btn primary" @click="generate('ai')" :disabled="busy || aiBlocked">{{ busy ? L('正在开始…', 'Starting…') : L('确认发送并生成', 'Send and generate') }}</button></footer>
     </section></div>
+    <report-template-editor v-if="templateEditor" :item="templateEditor.item" :builtin="templateEditor.builtin" :is-new="templateEditor.isNew" :saving="templateSaving" :error="templateError" @close="templateEditor=null" @save="saveTemplate" @remove="saveTemplate(null, 'delete')" @reset="saveTemplate(null, 'reset')"></report-template-editor>
   </section>`,
 };
