@@ -237,4 +237,4 @@ Want another AI tool supported? Open an issue with a redacted sample session fil
 
 From v0.5.1: [MizTrace Personal Use and Commercial License](./LICENSE). Individual use is free; organization-wide deployments, shared systems, commercial distribution and services require a separate paid license. Your output documents are not subject to an additional fee under this license.
 
-Contact [2907638436@qq.com](mailto:2907638436@qq.com) for commercial licensing. Copies and portions previously licensed under MIT, including v0.5.0 and earlier, retain their [original MIT permissions](./LICENSE-MIT). Third-party components retain their own licenses; see [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+Contact [2907638436@qq.com](mailto:2907638436@qq.com) for commercial licensing. Copies and portions previously licensed under MIT, including v0.5.0 and earlier, retain their original MIT permissions as distributed with those earlier copies. Third-party components retain their own licenses; see [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

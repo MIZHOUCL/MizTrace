@@ -22,7 +22,7 @@ const core = path.join(stage, 'service', 'core');
 fs.mkdirSync(core, { recursive: true });
 for (const name of ['src', 'web']) fs.cpSync(path.join(root, name), path.join(core, name), { recursive: true });
 fs.copyFileSync(path.join(root, 'package.json'), path.join(core, 'package.json'));
-for (const name of ['LICENSE', 'LICENSE-MIT', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md']) fs.copyFileSync(path.join(root, name), path.join(core, name));
+for (const name of ['LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md']) fs.copyFileSync(path.join(root, name), path.join(core, name));
 fs.copyFileSync(path.join(desktop, 'service.mjs'), path.join(stage, 'service', 'service.mjs'));
 const runtimeDir = path.join(stage, 'runtime');
 fs.mkdirSync(runtimeDir);

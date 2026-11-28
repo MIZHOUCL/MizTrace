@@ -46,6 +46,7 @@ jobs:
         run: |
           node --input-type=module -e "import fs from 'node:fs'; const p=JSON.parse(fs.readFileSync('package.json')); const d=JSON.parse(fs.readFileSync('desktop/package.json')); if(p.version!==d.version) throw Error('Version mismatch'); if(process.arch!==process.env.EXPECTED_ARCH) throw Error('Wrong runtime architecture'); if(process.env.GITHUB_REF_TYPE==='tag' && process.env.GITHUB_REF_NAME!=='v'+p.version) throw Error('Tag must match package version');"
       - name: Check macOS signing configuration
+        id: mac-signing
         if: runner.os == 'macOS'
         env:
           MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
@@ -55,7 +56,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
-          node -e "const config = require('./desktop/macos-signing.cjs').macSigningConfig(); if (config.osxSign && !process.env.MAC_CERT_P12) throw Error('GitHub macOS 构建缺少 MAC_CERT_P12，请上传 Developer ID Application 证书。');"
+          node -e "const fs = require('node:fs'); const config = require('./desktop/macos-signing.cjs').macSigningConfig(); if (config.osxSign && !process.env.MAC_CERT_P12) throw Error('GitHub macOS 构建缺少 MAC_CERT_P12，请上传 Developer ID Application 证书。'); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'enabled=' + Boolean(config.osxSign) + '\n');"
       - name: Test core
         run: npm test
       - name: Install desktop dependencies
@@ -95,7 +96,7 @@ jobs:
           if [[ -f "$RUNNER_TEMP/miztrace-signing.keychain-db" ]]; then security delete-keychain "$RUNNER_TEMP/miztrace-signing.keychain-db"; fi
           rm -f "$RUNNER_TEMP/miztrace-signing.p12"
       - name: Verify macOS distribution signature and notarization
-        if: runner.os == 'macOS' && env.MIZTRACE_REQUIRE_MAC_SIGNING == '1'
+        if: runner.os == 'macOS' && steps.mac-signing.outputs.enabled == 'true'
         run: node scripts/verify-macos-release.mjs
       - name: Smoke test packaged application
         run: node scripts/desktop-smoke.mjs
@@ -147,7 +148,7 @@ jobs:
             exit 0
           fi
           # 先上传齐全部平台及许可证，再公开。旧版本补发不能覆盖最新正式版入口。
-          cp LICENSE LICENSE-MIT LICENSING.md THIRD_PARTY_NOTICES.md release/
+          cp LICENSE LICENSING.md THIRD_PARTY_NOTICES.md release/
           gh release upload "$RELEASE_TAG" release/* --clobber
           PUBLISHED_TAGS="$(gh api "repos/$GH_REPO/releases?per_page=100" --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')"
           export PUBLISHED_TAGS

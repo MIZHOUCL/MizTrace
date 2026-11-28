@@ -262,4 +262,4 @@ npm test
 
 从 0.5.1 起使用 [MizTrace Personal Use and Commercial License](./LICENSE)：个人自用免费；企业统一部署、团队共享系统或对外商业服务需购买授权。个人工作日记、周报及导出的文档可以提交给公司或客户。
 
-商业咨询：[2907638436@qq.com](mailto:2907638436@qq.com)。完整使用边界见 [授权说明](./LICENSING.md)。0.5.0 及此前已按 MIT 发布的副本继续适用 [原 MIT 许可](./LICENSE-MIT)，第三方组件保留其原有许可证。
+商业咨询：[2907638436@qq.com](mailto:2907638436@qq.com)。完整使用边界见 [授权说明](./LICENSING.md)。0.5.0 及此前已按 MIT 发布的副本继续适用其发布时的 MIT 许可，第三方组件保留其原有许可证。

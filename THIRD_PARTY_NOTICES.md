@@ -9,7 +9,8 @@ MizTrace v0.5.0 and earlier MIT-licensed copies were distributed with:
 
 Copyright (c) 2026 MIZHOUCL
 
-The complete original notice and permission text are preserved in `LICENSE-MIT`.
+The complete original notice and permission text are supplied with those earlier
+copies and remain available in their Git history.
 Existing MIT permissions for those copies and independently licensed portions
 remain in effect, including commercial use permitted by MIT.
 
